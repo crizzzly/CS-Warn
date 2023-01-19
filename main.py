@@ -18,15 +18,13 @@ parameters = {
 
 response = requests.get(endpoint, params=parameters)
 response.raise_for_status()
-
 weather_data = response.json()
-pprint(weather_data)
+
 forecasts = ["hourly", "daily"]
 
 # with open('weather_data.json', 'r') as file:
 # 	weather_data = json.load(file)
-#
-# 	weather_forecast = {el: weather_data[el] for el in forecasts}
+
 
 daily = weather_data['daily']
 hourly = weather_data['hourly']
@@ -35,20 +33,27 @@ weather_ids_daily = [daily[i]['weather'][0]['id'] for i in range(len(daily))]
 
 cs_hours = []
 for i in range(len(weather_ids_hourly)):
+	if hourly[i]['dt'] > daily[0]['sunrise'] or hourly[i]['dt'] < daily[0]['sunset']:
+		pass
 	date = datetime.fromtimestamp(hourly[i]['dt'])
-	if weather_ids_hourly[i] == 800 or weather_ids_hourly[i] == 801:
-		cs_hours.append({
-			'date': date.strftime('%d.%m.%Y. %H:%M'),
-			'description': hourly[i]['weather'][0]['description'],
-			'wind_speed': hourly[i]['wind_speed'],
-			'temp': hourly[i]['temp'],
-			'clouds': hourly[i]['clouds'],
-			'visibility_km': hourly[i]['visibility'],
+	# if weather_ids_hourly[i] == 800 or weather_ids_hourly[i] == 801:
+	if weather_ids_hourly[i] == 600:
+		if date.hour > 17 or date.hour < 6:
+			cs_hours.append({
+				'date': date.strftime('%d.%m.%Y. %H:%M'),
+				'description': hourly[i]['weather'][0]['description'],
+				'wind_speed': hourly[i]['wind_speed'],
+				'temp': hourly[i]['temp'],
+				'clouds': hourly[i]['clouds'],
+				'visibility_km': hourly[i]['visibility'],
 
-		})
+			})
 for i in range(len(weather_ids_daily)):
+	if daily[i]['dt'] > daily[i]['sunrise'] or daily[i]['dt'] < daily[i]['sunset']:
+		pass
 	date = datetime.fromtimestamp(daily[i]['dt'])
-	if weather_ids_daily[i] == 800 or weather_ids_daily[i] == 801:
+	# if weather_ids_daily[i] == 800 or weather_ids_daily[i] == 801:
+	if weather_ids_daily[i] == 804:
 		cs_hours.append({
 			'date': date.strftime('%d.%m.%Y. %H:%M'),
 			'description': daily[i]['weather'][0]['description'],
@@ -56,7 +61,6 @@ for i in range(len(weather_ids_daily)):
 			'temp': daily[i]['temp'],
 			'clouds': daily[i]['clouds'],
 			# 'visibility': daily[i]['visibility'],
-
 		})
 
 pprint(cs_hours)
