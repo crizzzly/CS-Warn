@@ -6,8 +6,8 @@ from pprint import pprint
 
 api_key = os.environ.get('OPEN_WEATHER_API')
 endpoint = 'https://api.openweathermap.org/data/3.0/onecall'
-LAT = 48.788792
-LON = 9.934620
+LAT = os.environ.get('LAT')
+LON = os.environ.get('LON')
 
 parameters = {
 	"lat": LAT,
@@ -36,8 +36,8 @@ for i in range(len(weather_ids_hourly)):
 	if hourly[i]['dt'] > daily[0]['sunrise'] or hourly[i]['dt'] < daily[0]['sunset']:
 		pass
 	date = datetime.fromtimestamp(hourly[i]['dt'])
-	# if weather_ids_hourly[i] == 800 or weather_ids_hourly[i] == 801:
-	if weather_ids_hourly[i] == 600:
+	# if weather_ids_hourly[i] == 600:
+	if weather_ids_hourly[i] == 800 or weather_ids_hourly[i] == 801:
 		if date.hour > 17 or date.hour < 6:
 			cs_hours.append({
 				'date': date.strftime('%d.%m.%Y. %H:%M'),
@@ -52,8 +52,8 @@ for i in range(len(weather_ids_daily)):
 	if daily[i]['dt'] > daily[i]['sunrise'] or daily[i]['dt'] < daily[i]['sunset']:
 		pass
 	date = datetime.fromtimestamp(daily[i]['dt'])
-	# if weather_ids_daily[i] == 800 or weather_ids_daily[i] == 801:
-	if weather_ids_daily[i] == 804:
+	# if weather_ids_daily[i] == 804:
+	if weather_ids_daily[i] == 800 or weather_ids_daily[i] == 801:
 		cs_hours.append({
 			'date': date.strftime('%d.%m.%Y. %H:%M'),
 			'description': daily[i]['weather'][0]['description'],
