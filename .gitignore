@@ -1,0 +1,11 @@
+files/telegram
+files/cs_data.json
+files/cs_data_friday.json
+files/cs_data.json_hourly
+files/cs_data_daily.json
+files/weather_data.json
+files/weather_data1.json
+files/weather_data_friday.json
+venv
+main2.py
+server.py

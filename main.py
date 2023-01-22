@@ -37,9 +37,9 @@ response.raise_for_status()
 weather_data = response.json()
 
 
-with open('files/weather_data.json', 'w') as file:
-	file.write(json.dumps(weather_data))  # -> change mode to r!
-	# weather_data = json.load(file)
+with open('files/weather_data.json', 'r') as file:
+	# file.write(json.dumps(weather_data))  # -> change mode to r!
+	weather_data = json.load(file)
 
 
 daily = weather_data['daily']
@@ -99,7 +99,7 @@ pprint(cs_warnings_daily)
 if len(cs_warnings_hourly) > 0:
 	bot.send_msg(cs_warnings_hourly)
 	bot.send_msg(cs_warnings_daily)
-with open('files/cs_data_daily.json', 'w') as file:
-	file.write(json.dumps(cs_warnings_daily))
-with open('files/cs_data.json_hourly', 'w') as file:
-	file.write(json.dumps(cs_warnings_hourly))
+# with open('files/cs_data_daily.json', 'w') as file:
+# 	file.write(json.dumps(cs_warnings_daily))
+# with open('files/cs_data.json_hourly', 'w') as file:
+# 	file.write(json.dumps(cs_warnings_hourly))
