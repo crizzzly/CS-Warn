@@ -1,3 +1,6 @@
+import os
+import telebot
+
 ACCESS_TOKEN = os.environ.get('CS_ALERT_TELEGR_ACCESS_TOKEN')
 MAX_CHARS = 4096
 channel_id = '@CS_Alert_Alb'
@@ -15,6 +18,13 @@ weather_icons = {
 	'04': '️🌥',
 } # = 🌚🌤⛅️🌥☁️
 
+def send_image(image):
+	with open(image, 'rb') as file:
+		bot.send_photo(
+			chat_id=channel_id,
+			photo=file,  # 'figures/df_hourly_23_01_23.png'
+		)
+
 def create_msg(message):
 	print(f"create_message element type: {type(message)}")
 	print(message)
@@ -29,7 +39,6 @@ def create_msg(message):
 		msg += f"Visibility in km 👀: {message['visibility_km']/1000}\n"
 	msg += "\n\n"
 
-
 	return msg
 
 def send_msg(msg):
@@ -43,3 +52,6 @@ def send_msg(msg):
 		text += create_msg(el)
 
 	bot.send_message(channel_id, text, disable_notification=False)
+
+if __name__ == '__main__':
+	send_image('figures/df_hourly.png')
