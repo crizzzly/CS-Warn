@@ -4,76 +4,19 @@ from datetime import datetime
 from pprint import pprint
 import msg_handler as bot
 import api_talk as weather_api
-import data_plots
+import plot_data
 
 DATA_FROM_FILE = True
 forecasts = ["hourly", "daily"]
 
 
-def get_probability(clouds):
-	return 100 - clouds
 
+weather_ids_hourly= plot_data.get_hourly_weather_ids()
+hourly, daily = plot_data.get_hourly_weather_ids()
 
-if DATA_FROM_FILE:
-	with open('files/weather_data.json', 'r') as file:
-		weather_data = json.load(file)
-else:
-	weather_data = weather_api.get_onecall_forecast()
-	with open('files/weather_data.json', 'w') as file:
-		file.write(json.dumps(weather_data))  # -> change mode to r!
-
-daily = weather_data['daily']
-hourly = weather_data['hourly']
-weather_ids_hourly = [hourly[i]['weather'][0]['id'] for i in range(len(hourly))]
-weather_ids_daily = [daily[i]['weather'][0]['id'] for i in range(len(daily))]
-print("Weather IDs")
-print(weather_ids_daily)
-print(weather_ids_hourly)
-
-cs_warnings_hourly = []
-# get hourly weather data (48h)
-for i in range(len(weather_ids_hourly)):
-	if hourly[i]['dt'] > daily[0]['sunrise'] or hourly[i]['dt'] < daily[0]['sunset']:
-		pass
-	date = datetime.fromtimestamp(hourly[i]['dt'])
-	if 800 <= weather_ids_hourly[i] <= 803:
-		cs_warnings_hourly.append({
-			'type': 'hourly',
-			'date': date.strftime('%d.%m.%Y. %H:%M'),
-			'description': hourly[i]['weather'][0]['description'],
-			'icon': hourly[i]['weather'][0]['icon'],
-			'id': hourly[i]['weather'][0]['id'],
-			'wind_speed': hourly[i]['wind_speed'],
-			'feels_like': hourly[i]['feels_like'],
-			'temp': hourly[i]['temp'],
-			'clouds': hourly[i]['clouds'],
-			'visibility_km': hourly[i]['visibility'],
-			'probability': get_probability(hourly[i]['clouds']),
-		})
-
-# get daily weather data (8 days)
-cs_warnings_daily = []
-for i in range(len(weather_ids_daily)):
-	date = datetime.fromtimestamp(daily[i]['dt'])
-	if 800 <= weather_ids_daily[i] <= 803:
-		cs_warnings_daily.append({
-			'type': 'daily',
-			'date': date.strftime('%d.%m.%Y'),
-			'icon': hourly[i]['weather'][0]['icon'],
-			'description': daily[i]['weather'][0]['description'],
-			'id': daily[i]['weather'][0]['id'],
-			'wind_speed': daily[i]['wind_speed'],
-			'feels_like': daily[i]['feels_like']['night'],
-			'temp': daily[i]['temp']['night'],
-			'clouds': daily[i]['clouds'],
-			'moon_phase': daily[i]['moon_phase'],
-			'probability': get_probability(daily[i]['clouds']),
-		})
-
-pprint(cs_warnings_hourly)
-pprint(cs_warnings_daily)
+cs_warnings_hourly = [1]
 if len(cs_warnings_hourly) > 0:
-	data_plots.get_hourly_plot()
+	plot_data.get_hourly_plot()
 	# bot.send_image('figures/df_hourly.png')
 	# bot.send_msg(cs_warnings_hourly)
 	# bot.send_msg(cs_warnings_daily)
