@@ -46,7 +46,7 @@ class WeatherData:
 		# Axis Limits
 		ax1 = axs[0]
 		ax1.set_xlim(self.df.dt.min(), self.df.dt.max())
-		ax1.set_ylim(0, 199)
+		ax1.set_ylim(0, 100)
 
 		#
 		# ------------------ 1st Plot ------------------ #
@@ -195,7 +195,8 @@ class WeatherData:
 		)
 
 		# ---------- X-Axis Labels ---------- #
-		minor_labels = [pd.Timestamp(self.df.sunset[0], unit='s').hour, pd.Timestamp(self.df.sunrise[0], unit='s').hour]
+		minor_labels = [self.df.sunrise[0].hour, self.df.sunset[0].hour]
+		print(f'minor labels: {minor_labels}')
 		minor_labels.sort()
 
 		for ax in axs:
@@ -227,7 +228,7 @@ class WeatherData:
 				pad=2,
 			)
 
-		plt.savefig(f'figures/df_hourly.png')
+		plt.savefig(f'figures/{self.type}.png')
 
 	def process_onecall(self):
 		if FROM_FILE:
@@ -288,15 +289,28 @@ class WeatherData:
 			data = api_talk.get_5d_forecast()
 			with open('files/weather_data_48h.json', 'w') as f:
 				f.write(json.dumps(data))
-		sunset = pd.to_datetime(data['city']['sunset'], unit='s', origin='unix', utc=True)
+
 		sunrise = pd.to_datetime(data['city']['sunrise'], unit='s', origin='unix', utc=True)
+		sunset = pd.to_datetime(data['city']['sunset'], unit='s', origin='unix', utc=True)
+
 		sunrise = sunrise.tz_convert(TIME_ZONE)
-		sunset = sunrise.tz_convert(TIME_ZONE)
+		sunset = sunset.tz_convert(TIME_ZONE)
+
+		print(data['city']['sunrise'], data['city']['sunset'])
+		print(sunset)
+		print(sunrise)
 
 		self.df = pd.DataFrame(data['list'])
 		self.df.dt = pd.to_datetime(self.df.dt, unit='s', origin='unix', utc=True)
 		self.df.dt.dt.tz_convert(TIME_ZONE)
-		self.df.set_index('dt', inplace=True)
+		self.df.set_index('dt')
+
+		# sunrise and sunset
+		for i in range(self.df.index.size):
+			self.sunrises.append(sunrise + DateOffset(day=i))
+			self.sunsets.append(sunset + DateOffset(day=i))
+		self.df['sunrise'] = self.sunrises
+		self.df['sunset'] = self.sunsets
 
 		# Main
 		w_list = list(self.df.main)
@@ -328,19 +342,10 @@ class WeatherData:
 		self.df['wind_gust'] = w_df.gust
 		self.df.drop(['wind', 'main'], axis=1)
 
-		for i in range(self.df.index.size):
-			self.sunrises.append(sunrise + DateOffset(day=i))
-			self.sunsets.append(sunset + DateOffset(day=i))
-		self.df['sunrise'] = self.sunrises
-		self.df['sunset'] = self.sunsets
 
-
-		print(self.df.sample(5))
-		print(self.df.columns)
-
+		# print(self.df.columns)
 
 
 if __name__ == '__main__':
-
-	weather = WeatherData()
+	weather = WeatherData(t='5d_forecast')
 	weather.plot_data()

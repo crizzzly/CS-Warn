@@ -95,7 +95,8 @@ def get_5d_forecast():
 
 	res = requests.get(OWM_Endpoint_forecast, params=parameters)
 	res.raise_for_status()
-	weather_data = res.json()
+
+	return res.json()
 
 	with open('files/weather_data_5d3h.json', 'w') as file:
 		file.write(json.dumps(weather_data))
