@@ -53,5 +53,6 @@ def send_msg(msg):
 
 	bot.send_message(channel_id, text, disable_notification=False)
 
+
 if __name__ == '__main__':
 	send_image('figures/df_hourly.png')

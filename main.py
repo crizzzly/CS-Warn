@@ -4,23 +4,18 @@ from datetime import datetime
 from pprint import pprint
 import msg_handler as bot
 import api_talk as weather_api
-import plot_data
-
+from weather_data import WeatherData
 DATA_FROM_FILE = True
-forecasts = ["hourly", "daily"]
+treshold_orange = 50
+treshold_green = 80
 
 
-
-weather_ids_hourly= plot_data.get_hourly_weather_ids()
-hourly, daily = plot_data.get_hourly_weather_ids()
+forecast = WeatherData(t='5d')
+cs_data = forecast.probability.query('probability > @treshold')
 
 cs_warnings_hourly = [1]
-if len(cs_warnings_hourly) > 0:
-	plot_data.get_hourly_plot()
+if len(cs_data) > 0:
+	pass
 	# bot.send_image('figures/df_hourly.png')
 	# bot.send_msg(cs_warnings_hourly)
 	# bot.send_msg(cs_warnings_daily)
-# with open('files/cs_data_daily.json', 'w') as file:
-# 	file.write(json.dumps(cs_warnings_daily))
-# with open('files/cs_data.json_hourly', 'w') as file:
-# 	file.write(json.dumps(cs_warnings_hourly))
