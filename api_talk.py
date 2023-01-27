@@ -92,6 +92,7 @@ def get_5d_forecast():
 	calls owm/forecast
 	saves weather_data for next 5d3h in files/weather_data_5d3h.json
 	"""
+	print('getting 5d forecast')
 
 	res = requests.get(OWM_Endpoint_forecast, params=parameters)
 	res.raise_for_status()
@@ -106,6 +107,7 @@ def get_onecall_forecast():
 	"""
 	returns: weather_data from owm_onecall formatted as json
 	"""
+	print('getting 48h forecast (onecall)')
 
 	response = requests.get(onecall_endpoint, params=parameters_onecall)
 	response.raise_for_status()

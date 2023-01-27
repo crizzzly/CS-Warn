@@ -26,57 +26,125 @@ class WeatherData:
 		self.sunsets = []
 		self.sunrises = []
 		self.ids = []
+		self.icons = []
 
 		if t == '5d':  # !! Only in 3h-Steps available
-			self.process_5d_forecast()
-		elif t == 'one_call':
-			self.process_onecall()
-
-	def process_onecall(self):
-		if FROM_FILE:
-			with open('files/weather_data_onecall.json') as file:
-				data = json.load(file)
+			json_file = 'files/weather_data_48h.json'
+			call_api = api_talk.get_5d_forecast
+			# owm_data_key = ['list']
+		# elif t == 'one_call':
 		else:
-			data = api_talk.get_onecall_forecast()
-			with open('files/weather_data_onecall.json', 'w') as file:
+			json_file = 'files/weather_data_onecall.json'
+			call_api = api_talk.get_onecall_forecast
+			# owm_data_key = ['hourly', 'daily']
+
+		# Get WeatherData
+		with open(json_file) as file:
+			if FROM_FILE:
+				data = json.load(file)
+			else:
+				data = call_api()
 				file.write(json.dumps(data))
 
-		self.df = pd.DataFrame(data['hourly'])
-		self.df['probability'] = 100 - self.df.clouds
+		# ----------- for 5d forecast: ----------- #
+		if self.type == '5d':
+			self.df = pd.DataFrame(data['list'])
 
-		self.df.dt = pd.to_datetime(self.df.dt, utc=True, unit='s', origin='unix')
-		self.df['date'] = self.df.dt.dt.strftime('%Y-%m-%d')
+			# sunrise and sunset
+			# Convert UTC Timestamps to pd.datetime
+			sunrise = pd.to_datetime(data['city']['sunrise'], unit='s', origin='unix', utc=True)
+			sunset = pd.to_datetime(data['city']['sunset'], unit='s', origin='unix', utc=True)
+
+			# Convert to local timezone
+			sunrise = sunrise.tz_convert(TIME_ZONE)
+			sunset = sunset.tz_convert(TIME_ZONE)
+
+			for i in range(self.df.index.size):
+				self.sunrises.append(sunrise + DateOffset(day=i))
+				self.sunsets.append(sunset + DateOffset(day=i))
+			self.df['sunrise'] = self.sunrises
+			self.df['sunset'] = self.sunsets
+
+			# Make Dictionaries in Cells better accessable
+			# Main
+			w_list = list(self.df.main)
+			w_df = pd.DataFrame(w_list).fillna(0)
+			self.df['temp'] = w_df.temp
+			self.df['feels_like'] = w_df.feels_like
+			self.df['pressure'] = w_df.grnd_level
+			self.df['humidity'] = w_df.humidity
+			self.df['dew_point'] = self.df.temp - ((100 - self.df.humidity) / 5)
+
+			# Clouds
+			cl = list(self.df.clouds)
+			w_df = pd.DataFrame(cl).fillna(0)
+			self.df['clouds'] = w_df['all']
+
+
+			# Wind
+			c = list(self.df.wind)
+			w_df = pd.DataFrame(c)
+			self.df['wind_speed'] = w_df.speed
+			self.df['wind_deg'] = w_df.deg
+			self.df['wind_gust'] = w_df.gust
+			self.df.drop(['wind', 'main'], axis=1, inplace=True)
+			print(f'wind_speed: {self.df.wind_speed}')
+
+		# ----------- for onecall: ----------- #
+		else:  # onecall_api
+			self.df = pd.DataFrame(data['hourly'])
+			df_daily = pd.DataFrame(data['daily'])
+
+			# Sunrise and set
+			# Convert UTC Timestamps to pd.datetime
+			df_daily.dt = pd.to_datetime(df_daily.dt, utc=True, unit='s', origin='unix')
+			df_daily.sunrise = pd.to_datetime(df_daily.sunrise, utc=True, unit='s', origin='unix')
+			df_daily.sunset = pd.to_datetime(df_daily.sunset, utc=True, unit='s', origin='unix')
+
+			# Convert to local timezone
+			df_daily.dt.dt.tz_convert(TIME_ZONE)
+			df_daily.sunrise.dt.tz_convert(TIME_ZONE)
+			df_daily.sunset.dt.tz_convert(TIME_ZONE)
+
+			# add 'date' column to merge sunrise & set in according row
+			df_daily['date'] = df_daily.dt.dt.strftime('%Y-%m-%d')
+
+			sunrises = df_daily[['sunrise', 'date']]
+			sunsets = df_daily[['sunset', 'date']]
+
+			self.df = pd.merge(
+				left=self.df,
+				right=sunrises,
+				on='date'
+			)
+			self.df = pd.merge(
+				left=self.df,
+				right=sunsets,
+				on='date'
+			)
+			print('onecall index & columns:')
+			print(self.df.index)
+			print(self.df.columns)
+
+		# ----------- for 5d & onecall: ----------- #
+		# convert dt from int to timeseries/timestamps
+		self.df.dt = pd.to_datetime(self.df.dt, unit='s', origin='unix', utc=True)
 		self.df.dt.dt.tz_convert(TIME_ZONE)
 
-		df_daily = pd.DataFrame(data['daily'])
-		df_daily.dt = pd.to_datetime(df_daily.dt, utc=True, unit='s', origin='unix')
-		df_daily.sunrise = pd.to_datetime(df_daily.sunrise, utc=True, unit='s', origin='unix')
-		df_daily.sunset = pd.to_datetime(df_daily.sunset, utc=True, unit='s', origin='unix')
-		df_daily.dt.dt.tz_convert(TIME_ZONE)
-		df_daily.sunrise.dt.tz_convert(TIME_ZONE)
-		df_daily.sunset.dt.tz_convert(TIME_ZONE)
-		df_daily['date'] = df_daily.dt.dt.strftime('%Y-%m-%d')
+		# to easily check if time is at night
+		self.df['is_night'] = [
+			True if self.df.dt[i] < self.df.sunrise[i] or self.df.sunset[i] < self.df.dt[i]  else False
+			for i in self.df.index
+		]
 
-		sunrises = df_daily[['sunrise', 'date']]
-		sunsets = df_daily[['sunset', 'date']]
+		# one column for CS Probability per timestamp
+		self.df['probability'] = 100 - self.df.clouds
 
-		df_daily.set_index('dt', inplace=True)
-
-		self.df = pd.merge(
-			left=self.df,
-			right=sunrises,
-			on='date'
-		)
-		self.df = pd.merge(
-			left=self.df,
-			right=sunsets,
-			on='date'
-		)
-		self.df.set_index('dt', inplace=True)
-		self.df['is_night'] = [True if self.df.sunrise[i] > i > self.df.sunset[i] else False for i in self.df.index]
+		# donno if we will need this.
 		self.sunrises = self.df.sunrise
 		self.sunsets = self.df.sunset
 
+		# make weather id and icon easily accessable
 		w = list(self.df.weather)
 		w = [el[0] for el in w]
 		w_df = pd.DataFrame(w).fillna(0)  # create a new dataframe
@@ -87,68 +155,124 @@ class WeatherData:
 		self.df.drop('weather', axis=1, inplace=True)
 		self.ids = self.df.weather_id
 
-	def process_5d_forecast(self):
-		if FROM_FILE:
-			with open('files/weather_data_48h.json') as f:
-				data = json.loads(f.read())
-		else:
-			data = api_talk.get_5d_forecast()
-			with open('files/weather_data_48h.json', 'w') as f:
-				f.write(json.dumps(data))
-
-		sunrise = pd.to_datetime(data['city']['sunrise'], unit='s', origin='unix', utc=True)
-		sunset = pd.to_datetime(data['city']['sunset'], unit='s', origin='unix', utc=True)
-
-		sunrise = sunrise.tz_convert(TIME_ZONE)
-		sunset = sunset.tz_convert(TIME_ZONE)
-
-		self.df = pd.DataFrame(data['list'])
-		self.df.dt = pd.to_datetime(self.df.dt, unit='s', origin='unix', utc=True)
-		self.df.dt.dt.tz_convert(TIME_ZONE)
-		self.df.set_index('dt', inplace=True)
-
-		# sunrise and sunset
-		for i in range(self.df.index.size):
-			self.sunrises.append(sunrise + DateOffset(day=i))
-			self.sunsets.append(sunset + DateOffset(day=i))
-		self.df['sunrise'] = self.sunrises
-		self.df['sunset'] = self.sunsets
-
-		self.df['is_night'] = [True if self.df.sunrise[i] > i > self.df.sunset[i] else False for i in self.df.index]
-		# Main
-		w_list = list(self.df.main)
-		w_df = pd.DataFrame(w_list).fillna(0)
-		self.df['temp'] = w_df.temp
-		self.df['feels_like'] = w_df.feels_like
-		self.df['pressure'] = w_df.grnd_level
-		self.df['humidity'] = w_df.humidity
-		self.df['dew_point'] = self.df.temp - ((100 - self.df.humidity) / 5)
-
-		# Clouds
-		cl = list(self.df.clouds)
-		w_df = pd.DataFrame(cl).fillna(0)
-		self.df['clouds'] = w_df['all']
-		self.df['probability'] = 100 - self.df.clouds
-
-		# Wind
-		c = list(self.df.wind)
-		w_df = pd.DataFrame(c)
-		self.df['wind_speed'] = w_df.speed
-		self.df['wind_deg'] = w_df.deg
-		self.df['wind_gust'] = w_df.gust
-		self.df.drop(['wind', 'main'], axis=1, inplace=True)
-
-		# Weather
-		w = list(self.df.weather)
-		w = [el[0] for el in w]
-		w_df = pd.DataFrame(w).fillna(0)  # create a new dataframe
-		self.df['weather_id'] = w_df.id
-		self.df['weather_main'] = w_df.main
-		self.df['weather_description'] = w_df.description
-		self.df['weather_icon'] = w_df.icon
-		self.df.drop('weather', axis=1, inplace=True)
-		self.ids = self.df.weather_id
-		print(self.df.columns)
+	# def process_onecall(self):
+	#
+	# 	self.df = pd.DataFrame(data['hourly'])
+	# 	self.df['probability'] = 100 - self.df.clouds
+	#
+	# 	self.df.dt = pd.to_datetime(self.df.dt, utc=True, unit='s', origin='unix')
+	# 	self.df['date'] = self.df.dt.dt.strftime('%Y-%m-%d')
+	# 	self.df.dt.dt.tz_convert(TIME_ZONE)
+	#
+	# 	df_daily = pd.DataFrame(data['daily'])
+	# 	df_daily.dt = pd.to_datetime(df_daily.dt, utc=True, unit='s', origin='unix')
+	# 	df_daily.sunrise = pd.to_datetime(df_daily.sunrise, utc=True, unit='s', origin='unix')
+	# 	df_daily.sunset = pd.to_datetime(df_daily.sunset, utc=True, unit='s', origin='unix')
+	# 	df_daily.dt.dt.tz_convert(TIME_ZONE)
+	# 	df_daily.sunrise.dt.tz_convert(TIME_ZONE)
+	# 	df_daily.sunset.dt.tz_convert(TIME_ZONE)
+	# 	df_daily['date'] = df_daily.dt.dt.strftime('%Y-%m-%d')
+	#
+	# 	sunrises = df_daily[['sunrise', 'date']]
+	# 	sunsets = df_daily[['sunset', 'date']]
+	#
+	# 	df_daily.set_index('dt', inplace=True)
+	#
+	# 	self.df = pd.merge(
+	# 		left=self.df,
+	# 		right=sunrises,
+	# 		on='date'
+	# 	)
+	# 	self.df = pd.merge(
+	# 		left=self.df,
+	# 		right=sunsets,
+	# 		on='date'
+	# 	)
+	# 	# self.df.set_index('dt', inplace=True)
+	# 	self.df['is_night'] = [
+	# 		True if self.df.sunrise[i] > self.df.dt[i] > self.df.sunset[i] else False
+	# 		for i in self.df.index
+	# 	]
+	# 	self.sunrises = self.df.sunrise
+	# 	self.sunsets = self.df.sunset
+	#
+	# 	w = list(self.df.weather)
+	# 	w = [el[0] for el in w]
+	# 	w_df = pd.DataFrame(w).fillna(0)  # create a new dataframe
+	# 	self.df['weather_id'] = w_df.id
+	# 	self.df['weather_main'] = w_df.main
+	# 	self.df['weather_description'] = w_df.description
+	# 	self.df['weather_icon'] = w_df.icon
+	# 	self.df.drop('weather', axis=1, inplace=True)
+	# 	self.ids = self.df.weather_id
+	#
+	# def process_5d_forecast(self):
+	# 	if FROM_FILE:
+	# 		with open('files/weather_data_48h.json') as f:
+	# 			data = json.loads(f.read())
+	# 	else:
+	# 		data = api_talk.get_5d_forecast()
+	# 		with open('files/weather_data_48h.json', 'w') as f:
+	# 			f.write(json.dumps(data))
+	#
+	# 	sunrise = pd.to_datetime(data['city']['sunrise'], unit='s', origin='unix', utc=True)
+	# 	sunset = pd.to_datetime(data['city']['sunset'], unit='s', origin='unix', utc=True)
+	#
+	# 	sunrise = sunrise.tz_convert(TIME_ZONE)
+	# 	sunset = sunset.tz_convert(TIME_ZONE)
+	#
+	# 	self.df = pd.DataFrame(data['list'])
+	# 	self.df.dt = pd.to_datetime(self.df.dt, unit='s', origin='unix', utc=True)
+	# 	self.df.dt.dt.tz_convert(TIME_ZONE)
+	# 	# self.df.set_index('dt', inplace=True)
+	#
+	# 	# sunrise and sunset
+	# 	for i in range(self.df.index.size):
+	# 		self.sunrises.append(sunrise + DateOffset(day=i))
+	# 		self.sunsets.append(sunset + DateOffset(day=i))
+	# 	self.df['sunrise'] = self.sunrises
+	# 	self.df['sunset'] = self.sunsets
+	#
+	# 	self.df['is_night'] = [True if self.df.sunrise[i] > self.df.dt[i] > self.df.sunset[i] else False for i in self.df.index]
+	# 	# Main
+	# 	w_list = list(self.df.main)
+	# 	w_df = pd.DataFrame(w_list).fillna(0)
+	# 	self.df['temp'] = w_df.temp
+	# 	self.df['feels_like'] = w_df.feels_like
+	# 	self.df['pressure'] = w_df.grnd_level
+	# 	self.df['humidity'] = w_df.humidity
+	# 	self.df['dew_point'] = self.df.temp - ((100 - self.df.humidity) / 5)
+	#
+	# 	# Clouds
+	# 	cl = list(self.df.clouds)
+	# 	w_df = pd.DataFrame(cl).fillna(0)
+	# 	self.df['clouds'] = w_df['all']
+	# 	print(w_df['all'])
+	# 	print(self.df.clouds)
+	# 	self.df['probability'] = 100 - self.df.clouds
+	# 	print(f'probability: {self.df.probability}')
+	#
+	# 	# Wind
+	# 	c = list(self.df.wind)
+	# 	w_df = pd.DataFrame(c)
+	# 	self.df['wind_speed'] = w_df.speed
+	# 	self.df['wind_deg'] = w_df.deg
+	# 	self.df['wind_gust'] = w_df.gust
+	# 	self.df.drop(['wind', 'main'], axis=1, inplace=True)
+	# 	print(f'wind_speed: {self.df.wind_speed}')
+	#
+	# 	# Weather
+	# 	w = list(self.df.weather)
+	# 	w = [el[0] for el in w]
+	# 	w_df = pd.DataFrame(w).fillna(0)  # create a new dataframe
+	# 	self.df['weather_id'] = w_df.id
+	# 	self.df['weather_main'] = w_df.main
+	# 	self.df['weather_description'] = w_df.description
+	# 	self.df['weather_icon'] = w_df.icon
+	# 	self.df.drop('weather', axis=1, inplace=True)
+	# 	self.ids = w_df.id
+	# 	self.icons = w_df.icon
+	# 	print(self.df.probability)
 
 	def plot_data(self):
 		plt.close()
@@ -162,7 +286,7 @@ class WeatherData:
 
 		# Axis Limits
 		ax1 = axs[0]
-		ax1.set_xlim(self.df.index.min(), self.df.index.max())
+		ax1.set_xlim(self.df.dt.min(), self.df.dt.max())
 		ax1.set_ylim(0, 100)
 
 		#
@@ -187,7 +311,7 @@ class WeatherData:
 		# ----- Plot ----- #
 		# CS Area ---------- #
 		ax1.fill_between(
-			self.df.index,
+			self.df.dt,
 			100,
 			where=(self.df.probability >= 40) & (self.df.is_night == True),
 			facecolor=col_highlight,
@@ -196,7 +320,7 @@ class WeatherData:
 
 		# Probability ---------- #
 		ax1.plot(
-			self.df.index,
+			self.df.dt,
 			self.df.probability,
 			color=col_probability
 		)
@@ -219,7 +343,7 @@ class WeatherData:
 
 		# Wind Speed ---------- #
 		ax2.plot(
-			self.df.index,
+			self.df.dt,
 			self.df.wind_speed,
 			color=col_wind,
 			linewidth=1
@@ -227,7 +351,7 @@ class WeatherData:
 
 		# Gust Speed ---------- #
 		ax2.plot(
-			self.df.index,
+			self.df.dt,
 			self.df.wind_gust,
 			color=col_wind,
 			linestyle='dashed',
@@ -259,7 +383,7 @@ class WeatherData:
 
 		# Humidity Bar ---------- #
 		ax_bar.bar(
-			self.df.index,
+			self.df.dt,
 			self.df.humidity,
 			color=col_humidity,
 			label='date',
@@ -270,7 +394,7 @@ class WeatherData:
 
 		# CS Area ---------- #
 		ax_bar.fill_between(
-			self.df.index,
+			self.df.dt,
 			100,
 			where=(self.df.probability >= 40) & (self.df.is_night == True),
 			facecolor=col_highlight,
@@ -295,7 +419,7 @@ class WeatherData:
 
 		# Temperature ---------- #
 		ax_temp.plot(
-			self.df.index,
+			self.df.dt,
 			self.df.temp,
 			color=col_temp,
 			linewidth=1
@@ -303,7 +427,7 @@ class WeatherData:
 
 		# Dew Point ---------- #
 		ax_temp.plot(
-			self.df.index,
+			self.df.dt,
 			self.df.dew_point,
 			color=col_dew_point,
 			linewidth=1,
@@ -346,6 +470,7 @@ class WeatherData:
 
 		plt.savefig(f'figures/{self.type}.png')
 
+
 if __name__ == '__main__':
-	weather = WeatherData()#t='5d')
+	weather = WeatherData(t='5d')
 	weather.plot_data()
