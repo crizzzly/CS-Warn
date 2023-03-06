@@ -11,7 +11,7 @@ treshold_green = 80
 
 
 forecast = WeatherData(t='5d')
-cs_data = forecast.probability.query('probability > @treshold')
+cs_data = forecast.probabilities.query('probability > @treshold')
 
 cs_warnings_hourly = [1]
 if len(cs_data) > 0:

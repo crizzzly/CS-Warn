@@ -16,7 +16,8 @@ weather_icons = {
 	'03': '⛅',
 	'04n': '️🌥',
 	'04': '️🌥',
-} # = 🌚🌤⛅️🌥☁️
+}  # = 🌚🌤⛅️🌥☁️
+
 
 def send_image(image):
 	with open(image, 'rb') as file:
@@ -24,6 +25,7 @@ def send_image(image):
 			chat_id=channel_id,
 			photo=file,  # 'figures/df_hourly_23_01_23.png'
 		)
+
 
 def create_msg(message):
 	print(f"create_message element type: {type(message)}")
@@ -40,6 +42,7 @@ def create_msg(message):
 	msg += "\n\n"
 
 	return msg
+
 
 def send_msg(msg):
 	if msg[0]['type'] == 'hourly':

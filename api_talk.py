@@ -67,7 +67,6 @@ def get_nowcast():
 					19:42:30    -> 18:42:30
 	"""
 
-
 	text = call_api(OWM_Endpoint_current, parameters).text
 	weather_data = xmltodict.parse(text)
 

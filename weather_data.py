@@ -1,8 +1,8 @@
 import json
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
+import numpy as np
 import pandas as pd
-from pandas import DateOffset
 import api_talk
 
 FROM_FILE = True
@@ -10,6 +10,8 @@ TIME_ZONE = 'Europe/Berlin'
 LABEL_FONTSIZE = 10
 TICKLABEL_SIZE_Y = 'medium'
 TICKLABEL_SIZE_X = 'xx-small'
+
+CS_TRESHOLD = 50
 
 col_probability = 'mediumvioletred'
 col_wind = 'deepskyblue'
@@ -20,457 +22,364 @@ col_dew_point = 'aquamarine'
 
 
 class WeatherData:
-	def __init__(self, t='one_call'):
-		self.type = t
-		self.df = None
-		self.sunsets = []
-		self.sunrises = []
-		self.ids = []
-		self.icons = []
+    def __init__(self, t='one_call'):
+        self.type = t
+        self.df = None
+        self.plot_title = ''
+        self.sunset = None  #[]
+        self.sunrise = None
+        self.tz_offset = 0
+        self.ids = []
+        self.icons = []
+        self.probabilities = []
 
-		if t == '5d':  # !! Only in 3h-Steps available
-			json_file = 'files/weather_data_48h.json'
-			call_api = api_talk.get_5d_forecast
-			# owm_data_key = ['list']
-		# elif t == 'one_call':
-		else:
-			json_file = 'files/weather_data_onecall.json'
-			call_api = api_talk.get_onecall_forecast
-			# owm_data_key = ['hourly', 'daily']
+    def update_weather_data(self):
+        """
+        gets OWM Weather Data via api_talk.py
+        saves current weather
+        processes data for analysis and plotting via pandas
 
-		# Get WeatherData
-		with open(json_file) as file:
-			if FROM_FILE:
-				data = json.load(file)
-			else:
-				data = call_api()
-				file.write(json.dumps(data))
+        input: t = 'one_call' / '5d' for one_call(48h or 8d) or 5d (every 3h) forecast
+        """
 
-		# ----------- for 5d forecast: ----------- #
-		if self.type == '5d':
-			self.df = pd.DataFrame(data['list'])
+        if self.type == '5d':  # !! Only in 3h-Steps available
+            json_file = 'files/weather_data_5d.json'
+            call_api = api_talk.get_5d_forecast
+            self.plot_title = f'CS Probability within the next {5 * 24} hours'
+        # owm_data_key = ['list']
+        # elif self.t == 'one_call':
+        else:
+            json_file = 'files/weather_data_onecall.json'
+            call_api = api_talk.get_onecall_forecast
+            self.plot_title = f'CS Probability within the next {2 * 24} hours'
+            # owm_data_key = ['hourly', 'daily']
 
-			# sunrise and sunset
-			# Convert UTC Timestamps to pd.datetime
-			sunrise = pd.to_datetime(data['city']['sunrise'], unit='s', origin='unix', utc=True)
-			sunset = pd.to_datetime(data['city']['sunset'], unit='s', origin='unix', utc=True)
+        # Get WeatherData
+        if FROM_FILE:
+            with open(json_file) as file:
+                data = json.load(file)
+        else:
+            with open(json_file, 'w') as file:
+                data = call_api()
+                file.write(json.dumps(data))
 
-			# Convert to local timezone
-			sunrise = sunrise.tz_convert(TIME_ZONE)
-			sunset = sunset.tz_convert(TIME_ZONE)
+        # ----------- for 5d forecast: ----------- #
+        if self.type == '5d':
+            self.df = pd.DataFrame(data['list'])
+            self.tz_offset = data['city']['timezone']
 
-			for i in range(self.df.index.size):
-				self.sunrises.append(sunrise + DateOffset(day=i))
-				self.sunsets.append(sunset + DateOffset(day=i))
-			self.df['sunrise'] = self.sunrises
-			self.df['sunset'] = self.sunsets
+            # sunrise and sunset
+            # Convert UTC Timestamps to pd.datetime
+            sunrise = pd.to_datetime(data['city']['sunrise'], unit='s', origin='unix', utc=True)
+            sunset = pd.to_datetime(data['city']['sunset'], unit='s', origin='unix', utc=True)
 
-			# Make Dictionaries in Cells better accessable
-			# Main
-			w_list = list(self.df.main)
-			w_df = pd.DataFrame(w_list).fillna(0)
-			self.df['temp'] = w_df.temp
-			self.df['feels_like'] = w_df.feels_like
-			self.df['pressure'] = w_df.grnd_level
-			self.df['humidity'] = w_df.humidity
-			self.df['dew_point'] = self.df.temp - ((100 - self.df.humidity) / 5)
+            # Convert to local timezone
+            self.sunrise = sunrise.tz_convert(TIME_ZONE)
+            self.sunset = sunset.tz_convert(TIME_ZONE)
 
-			# Clouds
-			cl = list(self.df.clouds)
-			w_df = pd.DataFrame(cl).fillna(0)
-			self.df['clouds'] = w_df['all']
+            # Make Dictionaries in Cells better accessable
+            # Main
+            w_list = list(self.df.main)
+            w_df = pd.DataFrame(w_list).fillna(0)
+            self.df['temp'] = w_df.temp
+            self.df['feels_like'] = w_df.feels_like
+            self.df['pressure'] = w_df.grnd_level
+            self.df['humidity'] = w_df.humidity
+            self.df['dew_point'] = self.df.temp - ((100 - self.df.humidity) / 5)
 
+            # Clouds
+            cl = list(self.df.clouds)
+            w_df = pd.DataFrame(cl).fillna(0)
+            self.df['clouds'] = w_df['all']
 
-			# Wind
-			c = list(self.df.wind)
-			w_df = pd.DataFrame(c)
-			self.df['wind_speed'] = w_df.speed
-			self.df['wind_deg'] = w_df.deg
-			self.df['wind_gust'] = w_df.gust
-			self.df.drop(['wind', 'main'], axis=1, inplace=True)
-			print(f'wind_speed: {self.df.wind_speed}')
+            # Wind
+            c = list(self.df.wind)
+            w_df = pd.DataFrame(c)
+            self.df['wind_speed'] = w_df.speed
+            self.df['wind_deg'] = w_df.deg
+            self.df['wind_gust'] = w_df.gust
+            self.df.drop(['wind', 'main'], axis=1, inplace=True)
+            print(f'wind_speed: {self.df.wind_speed}')
 
-		# ----------- for onecall: ----------- #
-		else:  # onecall_api
-			self.df = pd.DataFrame(data['hourly'])
-			df_daily = pd.DataFrame(data['daily'])
+        else:  # onecall_api
+            self.df = pd.DataFrame(data['hourly'])
+            df_daily = pd.DataFrame(data['daily'])
+            self.tz_offset = data['timezone_offset']
 
-			# Sunrise and set
-			# Convert UTC Timestamps to pd.datetime
-			df_daily.dt = pd.to_datetime(df_daily.dt, utc=True, unit='s', origin='unix')
-			df_daily.sunrise = pd.to_datetime(df_daily.sunrise, utc=True, unit='s', origin='unix')
-			df_daily.sunset = pd.to_datetime(df_daily.sunset, utc=True, unit='s', origin='unix')
+            # Sunrise and set
+            # Convert UTC Timestamps to pd.datetime
+            df_daily.dt = pd.to_datetime(df_daily.dt, utc=True, unit='s', origin='unix')
+            df_daily.sunrise = pd.to_datetime(df_daily.sunrise, utc=True, unit='s', origin='unix')
+            df_daily.sunset = pd.to_datetime(df_daily.sunset, utc=True, unit='s', origin='unix')
 
-			# Convert to local timezone
-			df_daily.dt.dt.tz_convert(TIME_ZONE)
-			df_daily.sunrise.dt.tz_convert(TIME_ZONE)
-			df_daily.sunset.dt.tz_convert(TIME_ZONE)
+            # Convert to local timezone
+            df_daily.dt = df_daily.dt.dt.tz_convert(TIME_ZONE)
+            df_daily.sunrise = df_daily.sunrise.dt.tz_convert(TIME_ZONE)
+            df_daily.sunset = df_daily.sunset.dt.tz_convert(TIME_ZONE)
+            self.sunrise = df_daily.sunrise[0]
+            self.sunset = df_daily.sunset[0]
 
-			# add 'date' column to merge sunrise & set in according row
-			df_daily['date'] = df_daily.dt.dt.strftime('%Y-%m-%d')
+            # self.df.sunrise = df_daily.sunrise
+            # self.df.sunset = df_daily.sunset
+            # print('onecall index & columns:')
+            # print(self.df.index)
+            # print(self.df.columns)
 
-			sunrises = df_daily[['sunrise', 'date']]
-			sunsets = df_daily[['sunset', 'date']]
+        # ----------- for 5d & onecall: ----------- #
+        # convert dt from int to timeseries/timestamps
+        self.df.dt = pd.to_datetime(self.df.dt, unit='s', origin='unix', utc=True)
+        self.df.dt = self.df.dt.dt.tz_convert(TIME_ZONE)
 
-			self.df = pd.merge(
-				left=self.df,
-				right=sunrises,
-				on='date'
-			)
-			self.df = pd.merge(
-				left=self.df,
-				right=sunsets,
-				on='date'
-			)
-			print('onecall index & columns:')
-			print(self.df.index)
-			print(self.df.columns)
+        # to easily check if time is at night
+        self.df['is_night'] = [
+            True if self.df.dt[i].time() < self.sunrise.time() or self.sunset.time() < self.df.dt[i].time() else False
+            for i in self.df.index
+        ]
 
-		# ----------- for 5d & onecall: ----------- #
-		# convert dt from int to timeseries/timestamps
-		self.df.dt = pd.to_datetime(self.df.dt, unit='s', origin='unix', utc=True)
-		self.df.dt.dt.tz_convert(TIME_ZONE)
+        # one column for CS Probability per timestamp
+        self.df['probability'] = 100 - self.df.clouds
 
-		# to easily check if time is at night
-		self.df['is_night'] = [
-			True if self.df.dt[i] < self.df.sunrise[i] or self.df.sunset[i] < self.df.dt[i]  else False
-			for i in self.df.index
-		]
+        self.df['is_cs'] = [
+            True if self.df.probability[i] > CS_TRESHOLD and self.df.is_night[i] == True else False
+            for i in self.df.index
+        ]
 
-		# one column for CS Probability per timestamp
-		self.df['probability'] = 100 - self.df.clouds
+        # make weather id and icon easily accessible
+        w = list(self.df.weather)
+        w = [el[0] for el in w]
+        w_df = pd.DataFrame(w).fillna(0)  # create a new dataframe
+        self.df['weather_id'] = w_df.id
+        self.df['weather_main'] = w_df.main
+        self.df['weather_description'] = w_df.description
+        self.df['weather_icon'] = w_df.icon
+        self.df.drop('weather', axis=1, inplace=True)
+        self.ids = self.df.weather_id
+        self.probabilities = self.df['probability']
 
-		# donno if we will need this.
-		self.sunrises = self.df.sunrise
-		self.sunsets = self.df.sunset
+    def plot_data(self):
+        plt.close()
+        plt.style.use('dark_background')
 
-		# make weather id and icon easily accessable
-		w = list(self.df.weather)
-		w = [el[0] for el in w]
-		w_df = pd.DataFrame(w).fillna(0)  # create a new dataframe
-		self.df['weather_id'] = w_df.id
-		self.df['weather_main'] = w_df.main
-		self.df['weather_description'] = w_df.description
-		self.df['weather_icon'] = w_df.icon
-		self.df.drop('weather', axis=1, inplace=True)
-		self.ids = self.df.weather_id
+        fig, axs = plt.subplots(
+            2, 1,
+            constrained_layout=True,
+            sharex='col',
+        )
 
-	# def process_onecall(self):
-	#
-	# 	self.df = pd.DataFrame(data['hourly'])
-	# 	self.df['probability'] = 100 - self.df.clouds
-	#
-	# 	self.df.dt = pd.to_datetime(self.df.dt, utc=True, unit='s', origin='unix')
-	# 	self.df['date'] = self.df.dt.dt.strftime('%Y-%m-%d')
-	# 	self.df.dt.dt.tz_convert(TIME_ZONE)
-	#
-	# 	df_daily = pd.DataFrame(data['daily'])
-	# 	df_daily.dt = pd.to_datetime(df_daily.dt, utc=True, unit='s', origin='unix')
-	# 	df_daily.sunrise = pd.to_datetime(df_daily.sunrise, utc=True, unit='s', origin='unix')
-	# 	df_daily.sunset = pd.to_datetime(df_daily.sunset, utc=True, unit='s', origin='unix')
-	# 	df_daily.dt.dt.tz_convert(TIME_ZONE)
-	# 	df_daily.sunrise.dt.tz_convert(TIME_ZONE)
-	# 	df_daily.sunset.dt.tz_convert(TIME_ZONE)
-	# 	df_daily['date'] = df_daily.dt.dt.strftime('%Y-%m-%d')
-	#
-	# 	sunrises = df_daily[['sunrise', 'date']]
-	# 	sunsets = df_daily[['sunset', 'date']]
-	#
-	# 	df_daily.set_index('dt', inplace=True)
-	#
-	# 	self.df = pd.merge(
-	# 		left=self.df,
-	# 		right=sunrises,
-	# 		on='date'
-	# 	)
-	# 	self.df = pd.merge(
-	# 		left=self.df,
-	# 		right=sunsets,
-	# 		on='date'
-	# 	)
-	# 	# self.df.set_index('dt', inplace=True)
-	# 	self.df['is_night'] = [
-	# 		True if self.df.sunrise[i] > self.df.dt[i] > self.df.sunset[i] else False
-	# 		for i in self.df.index
-	# 	]
-	# 	self.sunrises = self.df.sunrise
-	# 	self.sunsets = self.df.sunset
-	#
-	# 	w = list(self.df.weather)
-	# 	w = [el[0] for el in w]
-	# 	w_df = pd.DataFrame(w).fillna(0)  # create a new dataframe
-	# 	self.df['weather_id'] = w_df.id
-	# 	self.df['weather_main'] = w_df.main
-	# 	self.df['weather_description'] = w_df.description
-	# 	self.df['weather_icon'] = w_df.icon
-	# 	self.df.drop('weather', axis=1, inplace=True)
-	# 	self.ids = self.df.weather_id
-	#
-	# def process_5d_forecast(self):
-	# 	if FROM_FILE:
-	# 		with open('files/weather_data_48h.json') as f:
-	# 			data = json.loads(f.read())
-	# 	else:
-	# 		data = api_talk.get_5d_forecast()
-	# 		with open('files/weather_data_48h.json', 'w') as f:
-	# 			f.write(json.dumps(data))
-	#
-	# 	sunrise = pd.to_datetime(data['city']['sunrise'], unit='s', origin='unix', utc=True)
-	# 	sunset = pd.to_datetime(data['city']['sunset'], unit='s', origin='unix', utc=True)
-	#
-	# 	sunrise = sunrise.tz_convert(TIME_ZONE)
-	# 	sunset = sunset.tz_convert(TIME_ZONE)
-	#
-	# 	self.df = pd.DataFrame(data['list'])
-	# 	self.df.dt = pd.to_datetime(self.df.dt, unit='s', origin='unix', utc=True)
-	# 	self.df.dt.dt.tz_convert(TIME_ZONE)
-	# 	# self.df.set_index('dt', inplace=True)
-	#
-	# 	# sunrise and sunset
-	# 	for i in range(self.df.index.size):
-	# 		self.sunrises.append(sunrise + DateOffset(day=i))
-	# 		self.sunsets.append(sunset + DateOffset(day=i))
-	# 	self.df['sunrise'] = self.sunrises
-	# 	self.df['sunset'] = self.sunsets
-	#
-	# 	self.df['is_night'] = [True if self.df.sunrise[i] > self.df.dt[i] > self.df.sunset[i] else False for i in self.df.index]
-	# 	# Main
-	# 	w_list = list(self.df.main)
-	# 	w_df = pd.DataFrame(w_list).fillna(0)
-	# 	self.df['temp'] = w_df.temp
-	# 	self.df['feels_like'] = w_df.feels_like
-	# 	self.df['pressure'] = w_df.grnd_level
-	# 	self.df['humidity'] = w_df.humidity
-	# 	self.df['dew_point'] = self.df.temp - ((100 - self.df.humidity) / 5)
-	#
-	# 	# Clouds
-	# 	cl = list(self.df.clouds)
-	# 	w_df = pd.DataFrame(cl).fillna(0)
-	# 	self.df['clouds'] = w_df['all']
-	# 	print(w_df['all'])
-	# 	print(self.df.clouds)
-	# 	self.df['probability'] = 100 - self.df.clouds
-	# 	print(f'probability: {self.df.probability}')
-	#
-	# 	# Wind
-	# 	c = list(self.df.wind)
-	# 	w_df = pd.DataFrame(c)
-	# 	self.df['wind_speed'] = w_df.speed
-	# 	self.df['wind_deg'] = w_df.deg
-	# 	self.df['wind_gust'] = w_df.gust
-	# 	self.df.drop(['wind', 'main'], axis=1, inplace=True)
-	# 	print(f'wind_speed: {self.df.wind_speed}')
-	#
-	# 	# Weather
-	# 	w = list(self.df.weather)
-	# 	w = [el[0] for el in w]
-	# 	w_df = pd.DataFrame(w).fillna(0)  # create a new dataframe
-	# 	self.df['weather_id'] = w_df.id
-	# 	self.df['weather_main'] = w_df.main
-	# 	self.df['weather_description'] = w_df.description
-	# 	self.df['weather_icon'] = w_df.icon
-	# 	self.df.drop('weather', axis=1, inplace=True)
-	# 	self.ids = w_df.id
-	# 	self.icons = w_df.icon
-	# 	print(self.df.probability)
+        # Axis Limits
+        ax1 = axs[0]
+        ax1.set_xlim(self.df.dt.min(), self.df.dt.max())
+        ax1.set_ylim(0, 100)
 
-	def plot_data(self):
-		plt.close()
-		plt.style.use('dark_background')
+        #
+        # ------------------ 1st Plot ------------------ #
+        #
+        # ---------- Left Axis: Probability ---------- #
+        # ----- Styling ----- #
+        ax1.tick_params(
+            axis='y',
+            labelcolor=col_probability,
+            labelsize=TICKLABEL_SIZE_Y,
+        )
+        ax1.set_title(
+            self.plot_title
+        )
+        ax1.set_ylabel(
+            'Probability in %',
+            color=col_probability,
+            fontsize=LABEL_FONTSIZE,
+        )
 
-		fig, axs = plt.subplots(
-			2, 1,
-			constrained_layout=True,
-			sharex='col',
-		)
+        # ----- Plot ----- #
+        # CS Area ---------- #
+        ax1.fill_between(
+            self.df.dt,
+            100,
+            where=(self.df.probability >= 40) & (self.df.is_night == True),
+            facecolor=col_highlight,
+            alpha=0.5
+        )
 
-		# Axis Limits
-		ax1 = axs[0]
-		ax1.set_xlim(self.df.dt.min(), self.df.dt.max())
-		ax1.set_ylim(0, 100)
+        # Probability ---------- #
+        ax1.plot(
+            self.df.dt,
+            self.df.probability,
+            color=col_probability
+        )
 
-		#
-		# ------------------ 1st Plot ------------------ #
-		#
-		# ---------- Left Axis: Probability ---------- #
-		# ----- Styling ----- #
-		ax1.tick_params(
-			axis='y',
-			labelcolor=col_probability,
-			labelsize=TICKLABEL_SIZE_Y,
-		)
-		ax1.set_title(
-			f'CS Probability within the next hours'
-		)
-		ax1.set_ylabel(
-			'Probability in %',
-			color=col_probability,
-			fontsize=LABEL_FONTSIZE,
-		)
+        # ---------- Right Axis: Wind & Gust Speed ---------- #
 
-		# ----- Plot ----- #
-		# CS Area ---------- #
-		ax1.fill_between(
-			self.df.dt,
-			100,
-			where=(self.df.probability >= 40) & (self.df.is_night == True),
-			facecolor=col_highlight,
-			alpha=0.5
-		)
+        # ----- Styling ----- #
+        ax2 = axs[0].twinx()
+        ax2.tick_params(
+            axis='y',
+            labelcolor=col_wind,
+            labelsize='medium'
+        )
+        ax2.set_ylabel(
+            'Wind Speed and Gust in km/h',
+            color=col_wind
+        )
 
-		# Probability ---------- #
-		ax1.plot(
-			self.df.dt,
-			self.df.probability,
-			color=col_probability
-		)
+        # ----- Plot ----- #
 
-		# ---------- Right Axis: Wind & Gust Speed ---------- #
+        # Wind Speed ---------- #
+        ax2.plot(
+            self.df.dt,
+            self.df.wind_speed,
+            color=col_wind,
+            linewidth=1
+        )
 
-		# ----- Styling ----- #
-		ax2 = axs[0].twinx()
-		ax2.tick_params(
-			axis='y',
-			labelcolor=col_wind,
-			labelsize='medium'
-		)
-		ax2.set_ylabel(
-			'Wind Speed and Gust in km/h',
-			color=col_wind
-		)
+        # Gust Speed ---------- #
+        ax2.plot(
+            self.df.dt,
+            self.df.wind_gust,
+            color=col_wind,
+            linestyle='dashed',
+            linewidth=1
+        )
 
-		# ----- Plot ----- #
+        # ------------------ 2nd Plot ------------------ #
+        ax_bar = axs[1]
+        ax_bar.set_title(
+            'Temperature DewPoint and Humidity',
+            color='white'
+        )
 
-		# Wind Speed ---------- #
-		ax2.plot(
-			self.df.dt,
-			self.df.wind_speed,
-			color=col_wind,
-			linewidth=1
-		)
+        # ---------- Left Axis: Humidity ---------- #
 
-		# Gust Speed ---------- #
-		ax2.plot(
-			self.df.dt,
-			self.df.wind_gust,
-			color=col_wind,
-			linestyle='dashed',
-			linewidth=1
-		)
+        # ----- Styling ----- #
+        ax_bar.tick_params(
+            axis='y',
+            labelsize='medium',
+            color='mediumblue',
+        )
+        ax_bar.set_ylabel(
+            'Humidity in %',
+            color='mediumblue',
+            fontsize=10
+        )
 
-		# ------------------ 2nd Plot ------------------ #
-		ax_bar = axs[1]
-		ax_bar.set_title(
-			'Temperature DewPoint and Humidity',
-			color='white'
-		)
+        # ----- Plot ----- #
 
-		# ---------- Left Axis: Humidity ---------- #
+        # Humidity Bar ---------- #
+        ax_bar.bar(
+            self.df.dt,
+            self.df.humidity,
+            color=col_humidity,
+            label='date',
+            alpha=0.5,
+            align='center',
+            width=50,
+        )
 
-		# ----- Styling ----- #
-		ax_bar.tick_params(
-			axis='y',
-			labelsize='medium',
-			color='mediumblue',
-		)
-		ax_bar.set_ylabel(
-			'Humidity in %',
-			color='mediumblue',
-			fontsize=10
-		)
+        # CS Area ---------- #
+        ax_bar.fill_between(
+            self.df.dt,
+            100,
+            where=(self.df.probability >= 40) & (self.df.is_night == True),
+            facecolor=col_highlight,
+            alpha=0.5
+        )
 
-		# ----- Plot ----- #
+        # ---------- Right Axis: Temperature, Dew Point ---------- #
+        ax_temp = axs[1].twinx()
 
-		# Humidity Bar ---------- #
-		ax_bar.bar(
-			self.df.dt,
-			self.df.humidity,
-			color=col_humidity,
-			label='date',
-			alpha=0.5,
-			align='center',
-			width=50,
-		)
+        # ----- Styling ----- #
+        ax_temp.tick_params(
+            axis='y',
+            labelcolor='aqua'
+        )
+        ax_temp.set_ylabel(
+            'Temperature and DewPoint in °C',
+            color='aqua',
+            fontsize=10
+        )
 
-		# CS Area ---------- #
-		ax_bar.fill_between(
-			self.df.dt,
-			100,
-			where=(self.df.probability >= 40) & (self.df.is_night == True),
-			facecolor=col_highlight,
-			alpha=0.5
-		)
+        # ----- Plot ----- #
 
-		# ---------- Right Axis: Temperature, Dew Point ---------- #
-		ax_temp = axs[1].twinx()
+        # Temperature ---------- #
+        ax_temp.plot(
+            self.df.dt,
+            self.df.temp,
+            color=col_temp,
+            linewidth=1
+        )
 
-		# ----- Styling ----- #
-		ax_temp.tick_params(
-			axis='y',
-			labelcolor='aqua'
-		)
-		ax_temp.set_ylabel(
-			'Temperature and DewPoint in °C',
-			color='aqua',
-			fontsize=10
-		)
+        # Dew Point ---------- #
+        ax_temp.plot(
+            self.df.dt,
+            self.df.dew_point,
+            color=col_dew_point,
+            linewidth=1,
+            linestyle='dashed'
+        )
 
-		# ----- Plot ----- #
+        # ---------- X-Axis Labels ---------- #
+        minor_labels = [self.sunrise.hour, self.sunset.hour]
+        print(f"sunrise/set: {self.sunrise, self.sunset}")
+        print(f'minor labels: {minor_labels}')
+        minor_labels.sort()
 
-		# Temperature ---------- #
-		ax_temp.plot(
-			self.df.dt,
-			self.df.temp,
-			color=col_temp,
-			linewidth=1
-		)
+        for ax in axs:
+            ax.grid(True)
+            ax.xaxis.set_major_locator(mdates.DayLocator())
 
-		# Dew Point ---------- #
-		ax_temp.plot(
-			self.df.dt,
-			self.df.dew_point,
-			color=col_dew_point,
-			linewidth=1,
-			linestyle='dashed'
-		)
+            ax.xaxis.set_minor_locator(mdates.HourLocator(byhour=[6, 12, 18]))
+            ax.xaxis.set_major_formatter(mdates.DateFormatter('%A'))
+            ax.xaxis.set_minor_formatter(mdates.DateFormatter('%H:%M'))
 
-		# ---------- X-Axis Labels ---------- #
-		minor_labels = [self.df.sunrise[0].hour, self.df.sunset[0].hour]
-		print(f'minor labels: {minor_labels}')
-		minor_labels.sort()
+            for label in ax.get_xticklabels(minor=False):
+                label.set_horizontalalignment('left')
 
-		for ax in axs:
-			ax.grid(True)
-			ax.xaxis.set_major_locator(mdates.DayLocator())
-			ax.xaxis.set_minor_locator(mdates.HourLocator(byhour=minor_labels))
-			ax.xaxis.set_major_formatter(mdates.DateFormatter('%A'))
-			ax.xaxis.set_minor_formatter(mdates.DateFormatter('%H:%M'))
+            ax.tick_params(
+                axis='x',
+                which='major',
+                labelsize='small',
+                pad=8,
+                # labelbottom=True,
+                direction='out'
+            )
+            ax.tick_params(
+                axis='x',
+                which='minor',
+                labelsize='xx-small',
+                color='silver',
+                grid_color='white',
+                grid_alpha=0.5,
+                # labelbottom=True,
+                pad=2,
+            )
 
-			for label in ax.get_xticklabels(minor=False):
-				label.set_horizontalalignment('left')
+        plt.savefig(f'figures/{self.type}.png')#
 
-			ax.tick_params(
-				axis='x',
-				which='major',
-				labelsize='small',
-				pad=8,
-				# labelbottom=True,
-				direction='out'
-			)
-			ax.tick_params(
-				axis='x',
-				which='minor',
-				labelsize='xx-small',
-				color='silver',
-				grid_color='white',
-				grid_alpha=0.5,
-				# labelbottom=True,
-				pad=2,
-			)
+    def check_for_changes(self):
+        dataset = self.df[['dt', 'probability', 'is_cs']].set_index('dt')
+        last_df = pd.read_json("data/weather_df.json")
+        last_df.index = pd.to_datetime(last_df.index, utc=True)
+        last_df.index = last_df.index.tz_convert(TIME_ZONE)
+        dataset.to_json("data/weather_df.json")
 
-		plt.savefig(f'figures/{self.type}.png')
+        dataset, last_df = dataset.align(last_df, axis=0, join="inner")
+        dataset['diff'] = abs(dataset.probability - last_df.probability)
+
+        # for testing purpose
+        # dataset['diff'] = np.random.randint(0, 50, dataset.shape[0])
+
+        print(dataset)
+        print(last_df)
+        print(last_df.size)
+
+        change_val = 25
+        significant_changes = dataset.query("diff >= @change_val and is_cs == True")
+        print(f'changes: {significant_changes.any()}')
+        print(significant_changes)
+        print(significant_changes.size)
 
 
 if __name__ == '__main__':
-	weather = WeatherData(t='5d')
-	weather.plot_data()
+    weather = WeatherData()
+    weather.update_weather_data()
+    weather.plot_data()
+    weather.check_for_changes()
