@@ -1,17 +1,23 @@
 import json
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
-import numpy as np
+import logging
 import pandas as pd
 import api_talk
+import pprint
 
-FROM_FILE = True
+from apscheduler.schedulers.blocking import BlockingScheduler
+sched = BlockingScheduler()
+runs = 0
+
+FROM_FILE = False
 TIME_ZONE = 'Europe/Berlin'
 LABEL_FONTSIZE = 10
 TICKLABEL_SIZE_Y = 'medium'
 TICKLABEL_SIZE_X = 'xx-small'
 
-CS_TRESHOLD = 50
+CS_TRESHOLD_LOW = 50
+CS_TRESHOLD_HIGH = 75
 
 col_probability = 'mediumvioletred'
 col_wind = 'deepskyblue'
@@ -20,18 +26,27 @@ col_humidity = 'mediumblue'
 col_temp = 'mediumspringgreen'
 col_dew_point = 'aquamarine'
 
+col_chances = ['red', 'orange', 'green']
+text_chances = ['No good', 'Medium', 'Good']
+
+logging.basicConfig(filename='dataframes.log', encoding='utf-8', level=logging.WARNING)
+
 
 class WeatherData:
     def __init__(self, t='one_call'):
+        self.time_call = None
         self.type = t
         self.df = None
         self.plot_title = ''
-        self.sunset = None  #[]
+        self.sunset = None
         self.sunrise = None
         self.tz_offset = 0
         self.ids = []
         self.icons = []
         self.probabilities = []
+        self.col_cs_chance = col_chances[0]
+        self.text_cs_chance = text_chances[0]
+        self.should_alert = False
 
     def update_weather_data(self):
         """
@@ -41,18 +56,33 @@ class WeatherData:
 
         input: t = 'one_call' / '5d' for one_call(48h or 8d) or 5d (every 3h) forecast
         """
+        # TODO: perhabs only use the next 12h / Time till next dawn?
+
+
+        logging.warning(f"Updating Weather Data. From File: {FROM_FILE}")
+
+        # if not FROM_FILE:
+        #     with open("data/api_counter.txt", "w") as file:
+        #         val = int(file.read())
+        #         val += 1
+        #         logging.warning(f"made {val} API-Calls since March")
+        #         file.write(str(val))
+        #         if val > 950:
+        #             logging.critical(f"API-CALLS ALMOST USED! Only {1000-val} left")
+        #             print(f"API-CALLS ALMOST USED! Only {1000-val} left")
+        #             print(f"API-CALLS ALMOST USED! Only {1000-val} left")
+        #             print(f"API-CALLS ALMOST USED! Only {1000-val} left")
+        #             exit(1)
 
         if self.type == '5d':  # !! Only in 3h-Steps available
             json_file = 'files/weather_data_5d.json'
             call_api = api_talk.get_5d_forecast
             self.plot_title = f'CS Probability within the next {5 * 24} hours'
-        # owm_data_key = ['list']
         # elif self.t == 'one_call':
         else:
             json_file = 'files/weather_data_onecall.json'
             call_api = api_talk.get_onecall_forecast
             self.plot_title = f'CS Probability within the next {2 * 24} hours'
-            # owm_data_key = ['hourly', 'daily']
 
         # Get WeatherData
         if FROM_FILE:
@@ -99,12 +129,15 @@ class WeatherData:
             self.df['wind_deg'] = w_df.deg
             self.df['wind_gust'] = w_df.gust
             self.df.drop(['wind', 'main'], axis=1, inplace=True)
-            print(f'wind_speed: {self.df.wind_speed}')
+            # print(f'wind_speed: {self.df.wind_speed}')
 
         else:  # onecall_api
             self.df = pd.DataFrame(data['hourly'])
             df_daily = pd.DataFrame(data['daily'])
             self.tz_offset = data['timezone_offset']
+            self.time_call = data['current']['dt']
+            self.time_call = pd.to_datetime(self.time_call, unit='s', origin='unix', utc=True)
+            self.time_call = self.time_call.tz_convert(TIME_ZONE)
 
             # Sunrise and set
             # Convert UTC Timestamps to pd.datetime
@@ -118,12 +151,6 @@ class WeatherData:
             df_daily.sunset = df_daily.sunset.dt.tz_convert(TIME_ZONE)
             self.sunrise = df_daily.sunrise[0]
             self.sunset = df_daily.sunset[0]
-
-            # self.df.sunrise = df_daily.sunrise
-            # self.df.sunset = df_daily.sunset
-            # print('onecall index & columns:')
-            # print(self.df.index)
-            # print(self.df.columns)
 
         # ----------- for 5d & onecall: ----------- #
         # convert dt from int to timeseries/timestamps
@@ -140,7 +167,7 @@ class WeatherData:
         self.df['probability'] = 100 - self.df.clouds
 
         self.df['is_cs'] = [
-            True if self.df.probability[i] > CS_TRESHOLD and self.df.is_night[i] == True else False
+            True if self.df.probability[i] > CS_TRESHOLD_LOW and self.df.is_night[i] == True else False
             for i in self.df.index
         ]
 
@@ -156,7 +183,46 @@ class WeatherData:
         self.ids = self.df.weather_id
         self.probabilities = self.df['probability']
 
+        # Kick unused Columns
+        self.df = self.df[[
+            'dt', 'temp', 'humidity', 'clouds', 'dew_point', 'wind_speed',
+            'wind_deg', 'wind_gust', 'is_night', 'probability', 'is_cs'
+        ]]
+
+        logging.warning(f'DataFrame created. Data from {self.time_call}')
+        print("NEW DATA ---- NEW DATA ---- NEW DATA ")
+        pprint.pprint(self.df[["dt", "probability", "is_night" ]])
+
+        probs = self.df.query("is_night == True")
+        good_chance = probs.query("probability >= @CS_TRESHOLD_HIGH")
+        logging.warning("THIS SHOULD ONLY CONTAIN ROWS AT NIGHT WITH GOOD CHANCES")
+        logging.warning(f'dates with good chances: \n{pprint.pformat(good_chance)}')
+        med_chance = probs.query("probability >= @CS_TRESHOLD_LOW")
+        logging.warning(f'dates with medium chances: \n{pprint.pformat(med_chance)}')
+
+        if good_chance.shape[0] > 0:
+            logging.warning(f"CS Probability over {CS_TRESHOLD_HIGH}% on {good_chance.shape[0]} hours")
+            self.text_cs_chance = text_chances[2]
+            self.col_cs_chance = col_chances[2]
+            self.should_alert = True
+            logging.warning("Should Warn was set to True")
+        elif med_chance.shape[0] > 0:
+            logging.warning(f"CS Probability over {CS_TRESHOLD_LOW}% on {med_chance.shape[0]} hours")
+            logging.warning(f'good times should be {good_chance.dt}')
+            self.text_cs_chance = text_chances[1]
+            self.col_cs_chance = col_chances[1]
+            self.should_alert = True
+            logging.warning("Should Warn was set to True")
+        else:
+            logging.warning('No good chances within the next hours')
+            self.text_cs_chance = text_chances[0]
+            self.col_cs_chance = col_chances[0]
+            self.should_alert = False
+
     def plot_data(self):
+        """
+        Plots the most important values (probability, temp, humidity, wind) via matplotlib
+        """
         plt.close()
         plt.style.use('dark_background')
 
@@ -164,6 +230,12 @@ class WeatherData:
             2, 1,
             constrained_layout=True,
             sharex='col',
+        )
+
+        fig.suptitle(
+            f"\n{self.text_cs_chance} chances within the next hours",
+            fontsize='xx-large',
+            color=self.col_cs_chance
         )
 
         # Axis Limits
@@ -182,7 +254,7 @@ class WeatherData:
             labelsize=TICKLABEL_SIZE_Y,
         )
         ax1.set_title(
-            self.plot_title
+            "\n" + self.plot_title
         )
         ax1.set_ylabel(
             'Probability in %',
@@ -217,12 +289,12 @@ class WeatherData:
             labelsize='medium'
         )
         ax2.set_ylabel(
-            'Wind Speed and Gust in km/h',
-            color=col_wind
+            'Wind Speed and Gust\nin km/h',
+            color=col_wind,
+            # labelpad=15
         )
 
         # ----- Plot ----- #
-
         # Wind Speed ---------- #
         ax2.plot(
             self.df.dt,
@@ -243,8 +315,8 @@ class WeatherData:
         # ------------------ 2nd Plot ------------------ #
         ax_bar = axs[1]
         ax_bar.set_title(
-            'Temperature DewPoint and Humidity',
-            color='white'
+            'Temperature, DewPoint and Humidity',
+            color='white',
         )
 
         # ---------- Left Axis: Humidity ---------- #
@@ -292,9 +364,10 @@ class WeatherData:
             labelcolor='aqua'
         )
         ax_temp.set_ylabel(
-            'Temperature and DewPoint in °C',
+            'Temperature and DewPoint\nin °C',
             color='aqua',
-            fontsize=10
+            fontsize=10,
+            labelpad=10,
         )
 
         # ----- Plot ----- #
@@ -318,8 +391,8 @@ class WeatherData:
 
         # ---------- X-Axis Labels ---------- #
         minor_labels = [self.sunrise.hour, self.sunset.hour]
-        print(f"sunrise/set: {self.sunrise, self.sunset}")
-        print(f'minor labels: {minor_labels}')
+        # print(f"sunrise/set: {self.sunrise, self.sunset}")
+        # print(f'minor labels: {minor_labels}')
         minor_labels.sort()
 
         for ax in axs:
@@ -352,34 +425,59 @@ class WeatherData:
                 pad=2,
             )
 
-        plt.savefig(f'figures/{self.type}.png')#
+        plt.savefig(f'figures/{self.type}.png')  #
 
     def check_for_changes(self):
         dataset = self.df[['dt', 'probability', 'is_cs']].set_index('dt')
-        last_df = pd.read_json("data/weather_df.json")
-        last_df.index = pd.to_datetime(last_df.index, utc=True)
-        last_df.index = last_df.index.tz_convert(TIME_ZONE)
+        logging.warning("saving newest dataset to file")
         dataset.to_json("data/weather_df.json")
+        last_df = pd.read_json("data/weather_df.json")
 
-        dataset, last_df = dataset.align(last_df, axis=0, join="inner")
-        dataset['diff'] = abs(dataset.probability - last_df.probability)
+        # TODO: What if when first warning says we will get CS and next says we won't?
+        # only check for changes if last_df is from today
+        logging.warning("Comparing dataset with last")
+        logging.warning(f"dataset vs last_df")
+        logging.warning(dataset.index[0].date(), last_df.index[0].date())
+        if dataset.index[0].date() == last_df.index[0].date():
+            last_df.index = pd.to_datetime(last_df.index, utc=True)
+            last_df.index = last_df.index.tz_convert(TIME_ZONE)
 
-        # for testing purpose
-        # dataset['diff'] = np.random.randint(0, 50, dataset.shape[0])
+            logging.warning(f"Dataset/last_df before alignment")  # \n{dataset}\n{last_df}")
+            logging.warning(f'sizes: {dataset.shape, last_df.shape}')
 
-        print(dataset)
-        print(last_df)
-        print(last_df.size)
+            dataset, last_df = dataset.align(last_df, axis=0, join="inner")
+            dataset['diff'] = abs(dataset.probability - last_df.probability)
 
-        change_val = 25
-        significant_changes = dataset.query("diff >= @change_val and is_cs == True")
-        print(f'changes: {significant_changes.any()}')
-        print(significant_changes)
-        print(significant_changes.size)
+            logging.warning(f"Datasets after alignment{pprint.pformat(dataset)}\n{pprint.pformat(last_df)}")
+
+            logging.warning(f'sizes: {dataset.size, last_df.size}')
+
+            # for testing purpose
+            # dataset['diff'] = np.random.randint(0, 50, dataset.shape[0])
+
+            # TODO: Test this shit!
+            change_val = 25
+            significant_changes = dataset.query("diff >= @change_val and is_cs == True")
+            self.should_alert = True if significant_changes.shape[0] > 0 else False
+            logging.warning(f'significant changes: {True if significant_changes.shape[0] > 0 else False}')
+            logging.warning(f'\n{significant_changes}')
+            logging.warning(significant_changes.shape)
+        else:
+            logging.warning("______ new day - no compare _____")
 
 
-if __name__ == '__main__':
+
+
+@sched.scheduled_job('cron', minute=20)
+def check_weather():
     weather = WeatherData()
     weather.update_weather_data()
-    weather.plot_data()
-    weather.check_for_changes()
+    # TODO: Problem with plotting data outside of main func:
+    #  https://stackoverflow.com/questions/34764535/why-cant-matplotlib-plot-in-a-different-thread
+    #weather.plot_data()
+    # weather.check_for_changes()
+    logging.warning("__________________END___________________")
+
+
+if __name__ == "__main__":
+    sched.start()

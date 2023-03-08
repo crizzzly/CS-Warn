@@ -1,61 +1,157 @@
+import datetime
 import os
-import telebot
+import logging
+
+import requests
+from telegram import ReplyKeyboardRemove, Update
+from geopy.geocoders import Nominatim
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    ContextTypes,
+    ConversationHandler,
+    MessageHandler,
+    filters,
+)
+
+
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
 
 ACCESS_TOKEN = os.environ.get('CS_ALERT_TELEGR_ACCESS_TOKEN')
 MAX_CHARS = 4096
 channel_id = '@CS_Alert_Alb'
 
-bot = telebot.TeleBot(ACCESS_TOKEN, parse_mode=None)  # You can set parse_mode by default. HTML or MARKDOWN
+NAME, LOCATION, EMAIL = range(3)
+
 
 weather_icons = {
-	'01n': '😎',
-	'01': '😎',
-	'02n': '🌤',
-	'02': '🌤',
-	'03n': '⛅',
-	'03': '⛅',
-	'04n': '️🌥',
-	'04': '️🌥',
+    '01n': '😎',
+    '01': '😎',
+    '02n': '🌤',
+    '02': '🌤',
+    '03n': '⛅',
+    '03': '⛅',
+    '04n': '️🌥',
+    '04': '️🌥',
 }  # = 🌚🌤⛅️🌥☁️
 
-
-def send_image(image):
-	with open(image, 'rb') as file:
-		bot.send_photo(
-			chat_id=channel_id,
-			photo=file,  # 'figures/df_hourly_23_01_23.png'
-		)
+user_data = None
+db_server = "http://127.0.0.1:5000/"
 
 
-def create_msg(message):
-	print(f"create_message element type: {type(message)}")
-	print(message)
-	msg = f'{message["date"]}\n'
-	msg += f'CS Probability : {message["probability"]}%\n'
-	msg += f"{weather_icons[message['icon']]}: {message['clouds']}%\n"
-	msg += f"{message['description']}\n"
-	msg += f"Temperature 🌡: {message['temp']}\n"
-	msg += f"feels like: {message['feels_like']}\n"
-	msg += f"Wind speed 🌬: {message['wind_speed']}\n"
-	if message['type'] == 'hourly':
-		msg += f"Visibility in km 👀: {message['visibility_km']/1000}\n"
-	msg += "\n\n"
+# Handle '/start' and '/help'
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Starts the conversation and asks the user about their gender."""
+    user = update.message.from_user
+    text = f"Hi {user.username}, I am EchoBot. I will fetch WeatherData for your location several " \
+           f"times a day and send a notification if the sky will be clear within the next hours. " \
+           f"At first I need a Name for my data. " \
+           f"Send '/cancel' to stop me."
 
-	return msg
+    await update.message.reply_text(
+        text,
+        reply_markup=ReplyKeyboardRemove()
+    )
+    return NAME
 
 
-def send_msg(msg):
-	if msg[0]['type'] == 'hourly':
-		text = "CS Propability within the next hours: \n\n"
-		print('send msg hourly')
-	else:
-		text = "CS Propability within the next days: \n\n"
-		print('send msg daily')
-	for el in msg:
-		text += create_msg(el)
+async def new_user(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Stores the name and asks for a location."""
+    global user_data
+    user = update.message.from_user
+    user_data = update.message.text
 
-	bot.send_message(channel_id, text, disable_notification=False)
+    logging.info(f"userdata of {user.username}: \n{user.full_name, user.id, user.is_bot, user.is_premium}")
+    await update.message.reply_text(
+        "Gorgeous! Now, send me your location please, or send /skip to tell me the City."
+    )
+
+    return LOCATION
+
+
+async def location(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Stores the location and asks for some info about the user."""
+    user = update.message.from_user
+
+    url = f"{db_server}/users/create?name={user_data}&telegram_uid={update.message.chat.username}&" \
+          f"lat={update.message.location.latitude}&lon{update.message.location.longitude}"
+    # res = requests.get(url)
+    # res.raise_for_status()
+    logging.info(
+        "Location of %s: %f / %f", user.first_name, update.message.location.latitude, update.message.location.longitude
+    )
+    await update.message.reply_text(
+        # f"answer from server: {res.text}"\
+        "Great. That's all!"
+    )
+    return ConversationHandler.END
+
+
+async def skip_location(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Skips the location and asks for city."""
+    user = update.message.from_user
+    logging.info("User %s did not send a location.", user.first_name)
+    await update.message.reply_text(
+        "No problem. Just tell me a city and I will find out the coordinates"
+    )
+
+    return LOCATION
+
+
+async def find_coordinates(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    global users_table
+    user = update.message.from_user
+    geolocator = Nominatim(user_agent="MyApp")
+    loc = geolocator.geocode("Hyderabad")
+    url = f"{db_server}/users/create?name={user_data}&telegram_uid={update.message.chat.username}&" \
+          f"lat={loc.latitude}&lon{loc.longitude}"
+    # res = requests.get(url)
+    # res.raise_for_status()
+    # print(users_table)
+
+    print("The latitude of the location is: ", loc.latitude)
+    print("The longitude of the location is: ", loc.longitude)
+    logging.info(f"Location of {user.username}: \n{loc.longitude, loc.latitude}")
+    await update.message.reply_text(
+        "Great. That's all!"
+    )
+    return ConversationHandler.END
+
+
+async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Cancels and ends the conversation."""
+    user = update.message.from_user
+    logging.info("User %s canceled the conversation.", user.first_name)
+    await update.message.reply_text(
+        "Bye! I hope we can talk again some day.", reply_markup=ReplyKeyboardRemove()
+    )
+
+    return ConversationHandler.END
+
+
+def main():
+    application = Application.builder().token(ACCESS_TOKEN).build()
+    # ---------- conversation handler (States Name, Location) ---------
+
+    conv_handler = ConversationHandler(
+        entry_points=[CommandHandler("start", start)],
+        states={
+            NAME: [MessageHandler(filters.User(), new_user)],
+            LOCATION: [
+                MessageHandler(filters.LOCATION, location),
+                CommandHandler('skip', skip_location)
+            ]
+        },
+        fallbacks=[CommandHandler("cancel", cancel)],
+    )
+
+    application.add_handler(conv_handler)
+    application.run_polling()
 
 
 if __name__ == '__main__':
-	send_image('figures/df_hourly.png')
+    # send_image('figures/df_hourly.png')
+    main()
