@@ -1,8 +1,12 @@
 import os
+import pprint
+
 import requests
 from flask import Flask, request, redirect, url_for
 from flask_sqlalchemy import SQLAlchemy
 
+
+# https://flask-sqlalchemy.palletsprojects.com/en/3.0.x/
 app = Flask(__name__)
 ##CREATE DATABASE
 app.config['SQLALCHEMY_DATABASE_URI'] = "sqlite:///users.db"
@@ -19,6 +23,24 @@ class User(db.Model):
     user_id = db.Column(db.Integer, nullable=True)
     lat = db.Column(db.Float, nullable=True)
     lon = db.Column(db.Float, nullable=True)
+    # weather_data = Mapped[List["WeatherData"]] = relationship(back_populates='user')
+
+
+class WeatherData(db.Model):
+    __tablename__: str = 'weather_data'
+
+    daytime = db.Column(db.Integer, primary_key=True)
+    sunrise = db.Column(db.Integer, nullable=True)
+    sunset = db.Column(db.Integer, nullable=True)
+    temp = db.Column(db.Integer, nullable=True)
+    dew_point = db.Column(db.Integer, nullable=True)
+    humidity = db.Column(db.Integer, nullable=True)
+    probability = db.Column(db.Integer, nullable=True)
+    wind_speed = db.Column(db.Float, nullable=True)
+    wind_gust = db.Column(db.Float, nullable=True)
+    lat = db.Column(db.Float, nullable=True)
+    lon = db.Column(db.Float, nullable=True)
+    # user = Mapped["User"] = relationship(back_polulates='weather_data')
 
 
 with app.app_context():
@@ -32,15 +54,17 @@ def index(word):
 
 @app.route("/users")
 def user_list():
-    users = db.session.execute(db.select(User).order_by(User.name)).scalars()
+    with app.app_context():
+        # users = db.session.execute(db.select(User).order_by(User.name))# .scalars()
+        users = User.query.all()
     return users
 
 
 @app.route("/new", methods=["GET", "POST"])
-def user_add(name="None", telegram_uid="None", lat=0, lon=0):
+def user_add(name="None", user_id="None", lat=0, lon=0):
     user = User(
         name=name,
-        id=telegram_uid,
+        user_id=user_id,
         lat=lat,
         lon=lon,
     )
@@ -51,20 +75,21 @@ def user_add(name="None", telegram_uid="None", lat=0, lon=0):
 
 
 @app.route("/user/<int:id>")
-def user_detail(id):
-    user = db.get_or_404(User, id)
+def user_detail(user_id):
+    with app.app_context():
+        # stmt = select(User).where(User.user_id == user_id)
+        # user = db.session.execute(stmt)
+        user = db.get_or_404(User, user_id)
+
     return user
 
 
 @app.route("/user/<int:id>/delete", methods=["GET", "POST"])
-def user_delete(id):
-    user = db.get_or_404(User, id)
-
-    if request.method == "POST":
+def user_delete(user_id):
+    with app.app_context():
+        user = db.get_or_404(User, user_id)
         db.session.delete(user)
         db.session.commit()
-        return "success"
-
     return "success"
 
 

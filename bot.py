@@ -1,5 +1,6 @@
 import os
 import logging
+import pprint
 
 from telegram import ReplyKeyboardRemove, Update
 from geopy.geocoders import Nominatim
@@ -26,6 +27,7 @@ NAME, LOCATION, CITY = range(3)
 user_name = ""
 
 
+########################## START CONVERSATION ######################
 # set up the introductory statement for the bot when the /start command is invoked
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Starts the conversation and asks the user about their gender."""
@@ -35,7 +37,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
            f"At first I need a Name for my data. " \
            f"Send '/cancel' to stop me."
 
-    await update.message.reply_text(text,
+    await update.message.reply_text(
+        text,
         reply_markup=ReplyKeyboardRemove()
     )
     return NAME
@@ -82,8 +85,6 @@ async def find_coordinates(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     user_add(name=user_name, user_id=user.id, lat=loc.latitude, lon=loc.longitude)
 
-    #except Exception as e:
-    #print(e)
     logging.info(
         f"Location of {user_name}: {loc.latitude, loc.longitude}",
     )
@@ -92,6 +93,29 @@ async def find_coordinates(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Great. That's all!"
     )
     return ConversationHandler.END
+
+################### CONVERSATION END #####################
+
+
+# get all users
+async def list_all_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    users = user_list()
+    users = [(user.name, user.lat, user.lon) for user in users]
+    await update.message.reply_text(pprint.pformat(users))
+
+
+async def list_user_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.message.from_user
+    details = user_detail(user.id)
+    print(details)
+    await update.message.reply_text(f'Details:\nName: {details.name}, Lat: {details.lat}, Lon: {details.lon}')
+
+
+async def delete_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.message.from_user
+    print(f'deleting user {user.id}')
+    user_delete(user.id)
+    await update.message.reply_text(f"deleted User {user.name}")
 
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -119,5 +143,8 @@ conv_handler = ConversationHandler(
     fallbacks=[CommandHandler('cancel', cancel)]
 )
 app.add_handler(conv_handler)
+app.add_handler(CommandHandler('all', list_all_users))
+app.add_handler(CommandHandler('detail', list_user_detail))
+app.add_handler(CommandHandler('delete', delete_user))
 
-app.run_polling(poll_interval=0.5)
+app.run_polling()

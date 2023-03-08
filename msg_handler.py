@@ -72,22 +72,7 @@ async def new_user(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     return LOCATION
 
 
-async def location(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Stores the location and asks for some info about the user."""
-    user = update.message.from_user
 
-    url = f"{db_server}/users/create?name={user_data}&telegram_uid={update.message.chat.username}&" \
-          f"lat={update.message.location.latitude}&lon{update.message.location.longitude}"
-    # res = requests.get(url)
-    # res.raise_for_status()
-    logging.info(
-        "Location of %s: %f / %f", user.first_name, update.message.location.latitude, update.message.location.longitude
-    )
-    await update.message.reply_text(
-        # f"answer from server: {res.text}"\
-        "Great. That's all!"
-    )
-    return ConversationHandler.END
 
 
 async def skip_location(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -139,7 +124,7 @@ def main():
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler("start", start)],
         states={
-            NAME: [MessageHandler(filters.User(), new_user)],
+            NAME: [MessageHandler(filters.TEXT, new_user)],
             LOCATION: [
                 MessageHandler(filters.LOCATION, location),
                 CommandHandler('skip', skip_location)
