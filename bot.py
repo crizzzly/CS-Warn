@@ -42,13 +42,17 @@ cities = [WeatherData("Heubach", 48.7913507, 9.9363623),
 
 
 async def send_all_plots(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    alert = False
     for city in cities:
-        try:
-            await update.message.reply_photo(open(f'figures/{city.city}-{city.type}.png', 'rb'))
-        except Exception as e:
-            print(e)
-            await update.message.reply_text(f"Error while trying to send photo:\n{e}")
-
+        if city.should_alert:
+            alert = True
+            try:
+                await update.message.reply_photo(open(f'figures/{city.city}-{city.type}.png', 'rb'))
+            except Exception as e:
+                print(e)
+                await update.message.reply_text(f"Error while trying to send photo:\n{e}")
+    if not alert:
+        await update.message.reply_text("None of our friends seems to have luck")
 
 async def send_plot(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
@@ -202,12 +206,14 @@ async def find_coordinates(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # get all users
-async def list_all_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def list_all_cities(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         users = user_list()
-        users = [(user.name, user.lat, user.lon) for user in users]
+        msg = "Cities: \n"
+        for user in users:
+            msg += f"{user.city}\n"
         try:
-            await update.message.reply_text(pprint.pformat(users))
+            await update.message.reply_text(msg)
         except Exception as e:
             await update.message.reply_text(f"Error: \n{e}")
     except Exception as e:
@@ -268,36 +274,25 @@ async def set_timer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     chat_id = update.effective_message.chat_id
     try:
         # args[0] should contain the time for the timer in seconds
-        h = int(context.args[0])
-        m = int(context.args[1])
+        due = int(context.args[0])
         # if h < 0:
         #     await update.effective_message.reply_text("Sorry we can not go back to future!")
         #     return
         job_removed = remove_job_if_exists(str(chat_id), context)
-        context.job_queue.run_daily(
-            update_weather_data,
-            days=(0, 1, 2, 3, 4, 5, 6),
-            time=datetime.time(
-                hour=h,
-                minute=m,
-                second=00,
-                tzinfo=pytz.timezone("Europe/Berlin")
-            ),
-            user_id=chat_id,  # my_id
-        )
+        context.job_queue.run_once(update_weather_data, due, chat_id=chat_id, name=str(chat_id), data=due)
 
-        logging.info(f"Timer set to {h}:{m}")
-        text = f"Timer successfully set to {h}:{m}!"
+        logging.info(f"Timer set to {due} sec")
+        text = f"Timer successfully set to {due} sec!"
         if job_removed:
             text += " Old one was removed."
         await update.effective_message.reply_text(text)
 
     except (IndexError, ValueError):
-        await update.effective_message.reply_text("Usage: /set <hour> <seconds>")
+        await update.effective_message.reply_text("Usage: /set <seconds>")
 
 
 async def unset(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Remove the job if the user changed their mind."""
+    """Remove the job if the user has changed their mind."""
     chat_id = update.message.chat_id
     job_removed = remove_job_if_exists(str(chat_id), context)
     text = "Timer successfully cancelled!" if job_removed else "You have no active timer."
@@ -308,11 +303,12 @@ async def unset(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def available_commands(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = "Available commands: \n " \
-          "/all:         lists all current users \n" \
-          "/start:       conversation to add yourself as new user \n" \
-          "/detail:      show saved details \n" \
-          "/delete:      delete yourself from user list\n" \
-          "/weather:     show weather from different locations"
+          "/all - lists all current saved cities \n" \
+          "/start - conversation to add yourself as new user \n" \
+          "/detail - show saved details \n" \
+          "/delete - delete yourself from user list\n" \
+          "/weather - show your latest weather data\n" \
+          "/weather_all - show plots of all saved cities if there's a minimal chance"
     try:
         await update.message.reply_text(msg)
     except Exception as e:
@@ -334,11 +330,11 @@ conv_handler = ConversationHandler(
 
 
 app.add_handler(conv_handler)
-app.add_handler(CommandHandler('all', list_all_users))
+app.add_handler(CommandHandler('all', list_all_cities))
 app.add_handler(CommandHandler('detail', list_user_detail))
 app.add_handler(CommandHandler('delete', delete_user))
-app.add_handler(CommandHandler('weather', send_all_plots))
-app.add_handler(CommandHandler('my_weather', send_plot))
+app.add_handler(CommandHandler('weather_all', send_all_plots))
+app.add_handler(CommandHandler('weather', send_plot))
 app.add_handler(CommandHandler('set', set_timer))
 app.add_handler(CommandHandler('unset', unset))
 app.add_handler(CommandHandler('help', available_commands))
