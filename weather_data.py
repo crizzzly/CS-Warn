@@ -10,7 +10,7 @@ import pprint
 # sched = BlockingScheduler()
 runs = 0
 
-FROM_FILE = False
+FROM_FILE = True
 TIME_ZONE = 'Europe/Berlin'
 LABEL_FONTSIZE = 10
 TICKLABEL_SIZE_Y = 'medium'
@@ -66,7 +66,7 @@ class WeatherData:
         """
         # TODO: perhaps only use the next 12h / Time till next dawn?
 
-        logging.warning(f"Updating Weather Data. From File: {FROM_FILE}")
+        logging.info(f"Updating Weather Data. From File: {FROM_FILE}")
 
         if self.type == '5d':  # !! Only in 3h-Steps available
             json_file = 'files/weather_data_5d.json'
@@ -183,32 +183,32 @@ class WeatherData:
             'wind_deg', 'wind_gust', 'is_night', 'probability', 'is_cs'
         ]]
 
-        logging.warning(f'DataFrame created. Data from {self.time_call}')
+        logging.info(f'DataFrame created. Data from {self.time_call}')
         print("NEW DATA ---- NEW DATA ---- NEW DATA ")
         pprint.pprint(self.df[["dt", "probability", "is_night" ]])
 
         probs = self.df.query("is_night == True")
         good_chance = probs.query("probability >= @CS_TRESHOLD_HIGH")
-        logging.warning("THIS SHOULD ONLY CONTAIN ROWS AT NIGHT WITH GOOD CHANCES")
-        logging.warning(f'dates with good chances: \n{pprint.pformat(good_chance)}')
+        logging.info("THIS SHOULD ONLY CONTAIN ROWS AT NIGHT WITH GOOD CHANCES")
+        logging.info(f'dates with good chances: \n{pprint.pformat(good_chance)}')
         med_chance = probs.query("probability >= @CS_TRESHOLD_LOW")
-        logging.warning(f'dates with medium chances: \n{pprint.pformat(med_chance)}')
+        logging.info(f'dates with medium chances: \n{pprint.pformat(med_chance)}')
 
         if good_chance.shape[0] > 0:
-            logging.warning(f"CS Probability over {CS_TRESHOLD_HIGH}% on {good_chance.shape[0]} hours")
+            logging.info(f"CS Probability over {CS_TRESHOLD_HIGH}% on {good_chance.shape[0]} hours")
             self.text_cs_chance = text_chances[2]
             self.col_cs_chance = col_chances[2]
             self.should_alert = True
-            logging.warning("Should Warn was set to True")
+            logging.info("Should Warn was set to True")
         elif med_chance.shape[0] > 0:
-            logging.warning(f"CS Probability over {CS_TRESHOLD_LOW}% on {med_chance.shape[0]} hours")
-            logging.warning(f'good times should be {good_chance.dt}')
+            logging.info(f"CS Probability over {CS_TRESHOLD_LOW}% on {med_chance.shape[0]} hours")
+            logging.info(f'good times should be {good_chance.dt}')
             self.text_cs_chance = text_chances[1]
             self.col_cs_chance = col_chances[1]
             self.should_alert = True
-            logging.warning("Should Warn was set to True")
+            logging.info("Should Warn was set to True")
         else:
-            logging.warning('No good chances within the next hours')
+            logging.info('No good chances within the next hours')
             self.text_cs_chance = text_chances[0]
             self.col_cs_chance = col_chances[0]
             self.should_alert = False
@@ -219,7 +219,7 @@ class WeatherData:
         """
         plt.close()
         plt.style.use('dark_background')
-        print("Creating Plot")
+        logging.info("Creating Plot")
 
         fig, axs = plt.subplots(
             2, 1,
@@ -426,28 +426,28 @@ class WeatherData:
 
     def check_for_changes(self):
         dataset = self.df[['dt', 'probability', 'is_cs']].set_index('dt')
-        logging.warning("saving newest dataset to file")
+        logging.info("saving newest dataset to file")
         dataset.to_json("data/weather_df.json")
         last_df = pd.read_json("data/weather_df.json")
 
         # TODO: What if when first warning says we will get CS and next says we won't?
         # only check for changes if last_df is from today
-        logging.warning("Comparing dataset with last")
-        logging.warning(f"dataset vs last_df")
-        logging.warning(dataset.index[0].date(), last_df.index[0].date())
+        logging.info("Comparing dataset with last")
+        logging.info(f"dataset vs last_df")
+        logging.info(dataset.index[0].date(), last_df.index[0].date())
         if dataset.index[0].date() == last_df.index[0].date():
             last_df.index = pd.to_datetime(last_df.index, utc=True)
             last_df.index = last_df.index.tz_convert(TIME_ZONE)
 
-            logging.warning(f"Dataset/last_df before alignment")  # \n{dataset}\n{last_df}")
-            logging.warning(f'sizes: {dataset.shape, last_df.shape}')
+            logging.info(f"Dataset/last_df before alignment")  # \n{dataset}\n{last_df}")
+            logging.info(f'sizes: {dataset.shape, last_df.shape}')
 
             dataset, last_df = dataset.align(last_df, axis=0, join="inner")
             dataset['diff'] = abs(dataset.probability - last_df.probability)
 
-            logging.warning(f"Datasets after alignment{pprint.pformat(dataset)}\n{pprint.pformat(last_df)}")
+            logging.info(f"Datasets after alignment{pprint.pformat(dataset)}\n{pprint.pformat(last_df)}")
 
-            logging.warning(f'sizes: {dataset.size, last_df.size}')
+            logging.info(f'sizes: {dataset.size, last_df.size}')
 
             # for testing purpose
             # dataset['diff'] = np.random.randint(0, 50, dataset.shape[0])
@@ -456,11 +456,11 @@ class WeatherData:
             change_val = 25
             significant_changes = dataset.query("diff >= @change_val and is_cs == True")
             self.should_alert = True if significant_changes.shape[0] > 0 else False
-            logging.warning(f'significant changes: {True if significant_changes.shape[0] > 0 else False}')
-            logging.warning(f'\n{significant_changes}')
-            logging.warning(significant_changes.shape)
+            logging.info(f'significant changes: {True if significant_changes.shape[0] > 0 else False}')
+            logging.info(f'\n{significant_changes}')
+            logging.info(significant_changes.shape)
         else:
-            logging.warning("______ new day - no compare _____")
+            logging.info("______ new day - no compare _____")
 
 
 
@@ -472,7 +472,7 @@ class WeatherData:
 #     #  https://stackoverflow.com/questions/34764535/why-cant-matplotlib-plot-in-a-different-thread
 #     #weather.plot_data()
 #     # weather.check_for_changes()
-#     logging.warning("__________________END___________________")
+#     logging.info("__________________END___________________")
 #
 #
 if __name__ == "__main__":

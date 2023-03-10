@@ -3,6 +3,7 @@ import os
 import pprint
 import datetime
 import pytz
+import werkzeug.exceptions
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -40,19 +41,8 @@ cities = [WeatherData("Heubach", 48.7913507, 9.9363623),
           WeatherData("Bisingen", 48.3120203, 8.9163672)]
 
 
-async def send_3_plots(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def send_all_plots(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for city in cities:
-        try:
-            pass
-            # city.update_weather_data()
-            # try:
-            #     new_weather_data(city.df.to_dict())
-            # except Exception as e:
-            #     print(e)
-            #     await update.message.reply_text(f"Error while saving weather data:\n{e}")
-        except Exception as e:
-            print(e)
-            await update.message.reply_text(f"Error in weather_data: \n{e}")
         try:
             await update.message.reply_photo(open(f'figures/{city.city}-{city.type}.png', 'rb'))
         except Exception as e:
@@ -60,31 +50,56 @@ async def send_3_plots(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(f"Error while trying to send photo:\n{e}")
 
 
-async def send_all_weather_data(context: ContextTypes.DEFAULT_TYPE):
-    job = context.job
-    for city in cities:
+async def send_plot(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Command '/my_weather'
+    sends last created weather plot
+    :param update:
+    :param context:
+    :return:
+    """
+    u = update.message.from_user
+    try:
+        user = user_detail(u.id)
         try:
-            # await update.message.reply_photo(open(f'figures/{city.city}-{city.type}.png', 'rb'))
-            await context.bot.sendPhoto(job.chat_id, open(f'figures/{city.city}-{city.type}.png', 'rb'))
+            await update.message.reply_photo(f'figures/{user.city}-onecall.png')
         except Exception as e:
-            logging.error(f'send_all_weather_data: \n{e}')
-            print(e)
-            # await update.message.reply_text(f"Error while trying to send photo:\n{e}")
+            logging.exception(e)
+            await update.message.reply_text(f"Exception while sending plot: \n{e}")
+
+    except werkzeug.exceptions.NotFound as e:
+        msg = f"Error while trying to find user_id {u.id} in db:\n No such id\n{e}"
+        logging.exception(msg)
+        await update.message.reply_text(msg)
 
 
 # to regularly update weather data of all saved cities
 async def update_weather_data(context: ContextTypes.DEFAULT_TYPE):
+    """
+    Updates WeatherData via weather api. Send according data to every user.
+    If there's a medium/good chance in one city it sends the plot to user group
+    :param context:
+    :return:
+    """
     users = user_list()
 
     logging.info("Updating Weather Data")
     for city in cities:
         city.update_weather_data()
+        try:
+            if city.should_alert:
+                await context.bot.sendPhoto(channel_id, open(f'figures/{city.city}-one_call.png', 'rb'))
+            else:
+                await context.bot.send_message(chat_id=channel_id, text="No good chances today")
+        except RuntimeWarning as w:
+            logging.warning(f"Runntime warning while trying to send photo: \n{w}")
+            await context.bot.send_message("Something might have gone wrong")
     for user in users:
         try:
             # await update.message.reply_photo(open(f'figures/{city.city}-{city.type}.png', 'rb'))
             await context.bot.sendPhoto(user.user_id, open(f'figures/{user.city}-one_call.png', 'rb'))
         except Exception as e:
-            logging.error(f'send_all_weather_data: \n{e}')
+            logging.exception(f'send_plot: \n{e}')
             print(e)
             # await update.message.reply_text(f"Error while trying to send photo:\n{e}")
 
@@ -253,31 +268,32 @@ async def set_timer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     chat_id = update.effective_message.chat_id
     try:
         # args[0] should contain the time for the timer in seconds
-        due = int(context.args[0])
-        # if due < 0:
+        h = int(context.args[0])
+        m = int(context.args[1])
+        # if h < 0:
         #     await update.effective_message.reply_text("Sorry we can not go back to future!")
         #     return
-
         job_removed = remove_job_if_exists(str(chat_id), context)
         context.job_queue.run_daily(
-            send_all_weather_data,
+            update_weather_data,
             days=(0, 1, 2, 3, 4, 5, 6),
             time=datetime.time(
-                hour=15,
-                minute=due,
+                hour=h,
+                minute=m,
                 second=00,
                 tzinfo=pytz.timezone("Europe/Berlin")
             ),
             user_id=chat_id,  # my_id
         )
 
-        text = "Timer successfully set!"
+        logging.info(f"Timer set to {h}:{m}")
+        text = f"Timer successfully set to {h}:{m}!"
         if job_removed:
             text += " Old one was removed."
         await update.effective_message.reply_text(text)
 
     except (IndexError, ValueError):
-        await update.effective_message.reply_text("Usage: /set <seconds>")
+        await update.effective_message.reply_text("Usage: /set <hour> <seconds>")
 
 
 async def unset(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -321,8 +337,8 @@ app.add_handler(conv_handler)
 app.add_handler(CommandHandler('all', list_all_users))
 app.add_handler(CommandHandler('detail', list_user_detail))
 app.add_handler(CommandHandler('delete', delete_user))
-app.add_handler(CommandHandler('weather', send_3_plots))
-app.add_handler(CommandHandler('my_weather', send_all_weather_data))
+app.add_handler(CommandHandler('weather', send_all_plots))
+app.add_handler(CommandHandler('my_weather', send_plot))
 app.add_handler(CommandHandler('set', set_timer))
 app.add_handler(CommandHandler('unset', unset))
 app.add_handler(CommandHandler('help', available_commands))
