@@ -1,10 +1,13 @@
-import os
 import logging
+import os
 import pprint
+import datetime
+import pytz
+
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from weather_data import WeatherData
-from telegram import ReplyKeyboardRemove, Update
+from apscheduler.triggers.cron import CronTrigger
 from geopy.geocoders import Nominatim
+from telegram import ReplyKeyboardRemove, Update
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -13,7 +16,9 @@ from telegram.ext import (
     MessageHandler,
     filters,
 )
-from server import index, user_add, user_list, user_detail, user_delete
+
+from server import user_add, user_list, user_detail, user_delete, new_weather_data
+from weather_data import WeatherData
 
 logging.basicConfig(
     filename='bot.log',
@@ -21,8 +26,10 @@ logging.basicConfig(
     level=logging.INFO
 )
 
+
 telegram_bot_token = os.environ.get('CS_ALERT_TELEGR_ACCESS_TOKEN')
 channel_id = '@CS_Alert_Alb'
+my_id = 5897239945
 MAX_CHARS = 4096
 
 NAME, LOCATION, CITY = range(3)
@@ -36,7 +43,13 @@ cities = [WeatherData("Heubach", 48.7913507, 9.9363623),
 async def send_3_plots(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for city in cities:
         try:
-            city.update_weather_data()
+            pass
+            # city.update_weather_data()
+            # try:
+            #     new_weather_data(city.df.to_dict())
+            # except Exception as e:
+            #     print(e)
+            #     await update.message.reply_text(f"Error while saving weather data:\n{e}")
         except Exception as e:
             print(e)
             await update.message.reply_text(f"Error in weather_data: \n{e}")
@@ -47,15 +60,36 @@ async def send_3_plots(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(f"Error while trying to send photo:\n{e}")
 
 
-async def send_weather_data(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    pass
+async def send_all_weather_data(context: ContextTypes.DEFAULT_TYPE):
+    job = context.job
+    for city in cities:
+        try:
+            # await update.message.reply_photo(open(f'figures/{city.city}-{city.type}.png', 'rb'))
+            await context.bot.sendPhoto(job.chat_id, open(f'figures/{city.city}-{city.type}.png', 'rb'))
+        except Exception as e:
+            logging.error(f'send_all_weather_data: \n{e}')
+            print(e)
+            # await update.message.reply_text(f"Error while trying to send photo:\n{e}")
+
+
+# to regularly update weather data of all saved cities
+async def update_weather_data(context: ContextTypes.DEFAULT_TYPE):
+    users = user_list()
+
+    logging.info("Updating Weather Data")
+    for city in cities:
+        city.update_weather_data()
+    for user in users:
+        try:
+            # await update.message.reply_photo(open(f'figures/{city.city}-{city.type}.png', 'rb'))
+            await context.bot.sendPhoto(user.user_id, open(f'figures/{user.city}-one_call.png', 'rb'))
+        except Exception as e:
+            logging.error(f'send_all_weather_data: \n{e}')
+            print(e)
+            # await update.message.reply_text(f"Error while trying to send photo:\n{e}")
 
 
 async def update_user_list():
-    pass
-
-
-async def update_weather_data(update: Update, context: ContextTypes.DEFAULT_TYPE):
     pass
 
 
@@ -105,6 +139,16 @@ async def location(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         logging.error(e)
         await update.message.reply_text(f"Error: \n{e}")
     logging.info(f"created user {user} from {city}")
+
+    try:
+        if city not in user_list():
+            logging.info(f"Creating new WeatherData instance for {city}")
+            new_data = WeatherData(city=city, lat=loc.latitude, lon=loc.longitude)
+            new_data.update_weather_data()
+            new_weather_data(new_data.df)
+            cities.append(new_data)
+    except LookupError as e:
+        logging.error("Something went wrong while trying to create new WeatherData")
 
     try:
         await update.message.reply_text("Great. That's all!")
@@ -192,6 +236,60 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     return ConversationHandler.END
 
 
+########################### Timer #########################
+
+def remove_job_if_exists(name: str, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    """Remove job with given name. Returns whether job was removed."""
+    current_jobs = context.job_queue.get_jobs_by_name(name)
+    if not current_jobs:
+        return False
+    for job in current_jobs:
+        job.schedule_removal()
+    return True
+
+
+async def set_timer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Add a job to the queue."""
+    chat_id = update.effective_message.chat_id
+    try:
+        # args[0] should contain the time for the timer in seconds
+        due = int(context.args[0])
+        # if due < 0:
+        #     await update.effective_message.reply_text("Sorry we can not go back to future!")
+        #     return
+
+        job_removed = remove_job_if_exists(str(chat_id), context)
+        context.job_queue.run_daily(
+            send_all_weather_data,
+            days=(0, 1, 2, 3, 4, 5, 6),
+            time=datetime.time(
+                hour=15,
+                minute=due,
+                second=00,
+                tzinfo=pytz.timezone("Europe/Berlin")
+            ),
+            user_id=chat_id,  # my_id
+        )
+
+        text = "Timer successfully set!"
+        if job_removed:
+            text += " Old one was removed."
+        await update.effective_message.reply_text(text)
+
+    except (IndexError, ValueError):
+        await update.effective_message.reply_text("Usage: /set <seconds>")
+
+
+async def unset(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Remove the job if the user changed their mind."""
+    chat_id = update.message.chat_id
+    job_removed = remove_job_if_exists(str(chat_id), context)
+    text = "Timer successfully cancelled!" if job_removed else "You have no active timer."
+    await update.message.reply_text(text)
+
+##################### Timer End ##############################
+
+
 async def available_commands(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = "Available commands: \n " \
           "/all:         lists all current users \n" \
@@ -203,7 +301,6 @@ async def available_commands(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text(msg)
     except Exception as e:
         await update.message.reply_text(f"Error: \n{e}")
-
 
 app = Application.builder().token(token=telegram_bot_token).build()
 conv_handler = ConversationHandler(
@@ -218,12 +315,47 @@ conv_handler = ConversationHandler(
     },
     fallbacks=[CommandHandler('cancel', cancel)]
 )
+
+
 app.add_handler(conv_handler)
 app.add_handler(CommandHandler('all', list_all_users))
 app.add_handler(CommandHandler('detail', list_user_detail))
 app.add_handler(CommandHandler('delete', delete_user))
 app.add_handler(CommandHandler('weather', send_3_plots))
-app.add_handler(CommandHandler('weather_mine', send_weather_data))
+app.add_handler(CommandHandler('my_weather', send_all_weather_data))
+app.add_handler(CommandHandler('set', set_timer))
+app.add_handler(CommandHandler('unset', unset))
 app.add_handler(CommandHandler('help', available_commands))
 
+################# Timers Update WeatherData #############
+app.job_queue.run_daily(  # 12.00
+            update_weather_data,
+            days=(0, 1, 2, 3, 4, 5, 6),
+            time=datetime.time(
+                hour=12,
+                minute=00,
+                second=00,
+                tzinfo=pytz.timezone("Europe/Berlin")
+            ),
+)
+app.job_queue.run_daily(  # 15.00
+            update_weather_data,
+            days=(0, 1, 2, 3, 4, 5, 6),
+            time=datetime.time(
+                hour=18,
+                minute=00,
+                second=00,
+                tzinfo=pytz.timezone("Europe/Berlin")
+            ),
+)
+app.job_queue.run_daily(  # 18.00
+            update_weather_data,
+            days=(0, 1, 2, 3, 4, 5, 6),
+            time=datetime.time(
+                hour=18,
+                minute=00,
+                second=00,
+                tzinfo=pytz.timezone("Europe/Berlin")
+            ),
+)
 app.run_polling()

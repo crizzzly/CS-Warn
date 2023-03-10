@@ -27,10 +27,20 @@ class User(db.Model):
     # weather_id = db.Column(db.Integer, db.ForeignKey('weather_data.id'))
 
 
+# class City(db.Model):
+#     __tablename__ = "cities"
+#
+#     id = db.Column(db.Integer, primary=True)
+#     name = db.Column(db.String, nullable=False)
+#     lat = db.Column(db.Float, nullable=False)
+#     lon = db.Column(db.Float, nullable=False)
+
+
 class WeatherData(db.Model):
     __tablename__: str = 'weather_data'
 
     daytime = db.Column(db.Integer, primary_key=True)
+    city = db.Column(db.String, nullable=False)
     sunrise = db.Column(db.Integer, nullable=True)
     sunset = db.Column(db.Integer, nullable=True)
     temp = db.Column(db.Integer, nullable=True)
@@ -39,15 +49,19 @@ class WeatherData(db.Model):
     probability = db.Column(db.Integer, nullable=True)
     wind_speed = db.Column(db.Float, nullable=True)
     wind_gust = db.Column(db.Float, nullable=True)
-    lat = db.Column(db.Float, nullable=True)
-    lon = db.Column(db.Float, nullable=True)
+    lat = db.Column(db.Float, nullable=False)
+    lon = db.Column(db.Float, nullable=False)
     # users = db.relationship("WeatherData", backref='users')
 
 
 with app.app_context():
     db.create_all()
 
+################### CITY ########################
 
+
+
+##################### USER ######################
 @app.route('/')
 def index(word):
     return redirect(url_for(user_list))
@@ -62,10 +76,11 @@ def user_list():
 
 
 @app.route("/new", methods=["GET", "POST"])
-def user_add(name="None", user_id="None", lat=0, lon=0):
+def user_add(name="None", user_id="None", city="None", lat=0, lon=0):
     user = User(
         name=name,
         user_id=user_id,
+        city=city,
         lat=lat,
         lon=lon,
     )
@@ -92,6 +107,28 @@ def user_delete(user_id):
         db.session.delete(user)
         db.session.commit()
     return "success"
+
+####################### WEATHER ######################
+def new_weather_data(weather_df):
+    weather = WeatherData(
+        daytime=weather_df.dt,
+        city=weather_df.city,
+        sunrise=weather_df.sunrise,
+        sunset=weather_df.sunset,
+        temp=weather_df.temp,
+        dew_point=weather_df.dew_point,
+        humidity=weather_df.humidity,
+        probability=weather_df.probability,
+        wind_speed=weather_df.wind_speed,
+        wind_gust=weather_df.wind_gust,
+        lat=weather_df.lat,
+        lon=weather_df.lon,
+        user=db.relationship("WeatherData", backref='users')
+    )
+    with app.app_context():
+        db.session.add(weather)
+        db.session.commit()
+    return "success??"
 
 
 port = int(os.environ.get('PORT', 5000))

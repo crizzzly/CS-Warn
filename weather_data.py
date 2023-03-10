@@ -10,7 +10,7 @@ import pprint
 # sched = BlockingScheduler()
 runs = 0
 
-FROM_FILE = True
+FROM_FILE = False
 TIME_ZONE = 'Europe/Berlin'
 LABEL_FONTSIZE = 10
 TICKLABEL_SIZE_Y = 'medium'
@@ -213,6 +213,7 @@ class WeatherData:
             self.col_cs_chance = col_chances[0]
             self.should_alert = False
 
+   #  def plot_data(self):
         """
         Plots the most important values (probability, temp, humidity, wind) via matplotlib
         """
@@ -464,7 +465,6 @@ class WeatherData:
 
 
 
-# @sched.scheduled_job('cron', minute=20)
 # def check_weather():
 #     weather = WeatherData()
 #     weather.update_weather_data()
