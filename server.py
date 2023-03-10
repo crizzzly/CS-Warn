@@ -4,7 +4,7 @@ import pprint
 import requests
 from flask import Flask, request, redirect, url_for
 from flask_sqlalchemy import SQLAlchemy
-
+from sqlalchemy.orm import Mapped, relationship
 
 # https://flask-sqlalchemy.palletsprojects.com/en/3.0.x/
 app = Flask(__name__)
@@ -20,10 +20,11 @@ class User(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String, nullable=True)
+    city = db.Column(db.String, nullable=True)
     user_id = db.Column(db.Integer, nullable=True)
     lat = db.Column(db.Float, nullable=True)
     lon = db.Column(db.Float, nullable=True)
-    # weather_data = Mapped[List["WeatherData"]] = relationship(back_populates='user')
+    # weather_id = db.Column(db.Integer, db.ForeignKey('weather_data.id'))
 
 
 class WeatherData(db.Model):
@@ -40,7 +41,7 @@ class WeatherData(db.Model):
     wind_gust = db.Column(db.Float, nullable=True)
     lat = db.Column(db.Float, nullable=True)
     lon = db.Column(db.Float, nullable=True)
-    # user = Mapped["User"] = relationship(back_polulates='weather_data')
+    # users = db.relationship("WeatherData", backref='users')
 
 
 with app.app_context():
@@ -96,4 +97,4 @@ def user_delete(user_id):
 port = int(os.environ.get('PORT', 5000))
 
 if __name__ == "__main__":
-    app.run(debug=True, host='0.0.0.0', port=port)
+    app.run(host='0.0.0.0', port=port)

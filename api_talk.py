@@ -40,14 +40,8 @@ parameters = {
 		#"mode": "xml",
 	}
 
-parameters_onecall = {
-		"lat": LAT,
-		"lon": LON,
-		"appid": API_KEY,
-		"units": "metric",
-	}
-
 pp = pprint.PrettyPrinter(indent=4)
+
 
 def call_api(endpoint, params):
 	res = requests.get(endpoint, params=params)
@@ -57,6 +51,8 @@ def call_api(endpoint, params):
 
 fifteen_min = 15*60
 update_times = []
+
+
 def get_nowcast():
 	"""
 	calls owm/weather
@@ -96,17 +92,23 @@ def get_5d_forecast():
 	res = requests.get(OWM_Endpoint_forecast, params=parameters)
 	res.raise_for_status()
 
+	with open('files/weather_data_5d3h.json', 'w') as file:
+		file.write(json.dumps(res.json()))
+
 	return res.json()
 
-	with open('files/weather_data_5d3h.json', 'w') as file:
-		file.write(json.dumps(weather_data))
 
-
-def get_onecall_forecast():
+def get_onecall_forecast(lat, lon):
 	"""
 	returns: weather_data from owm_onecall formatted as json
 	"""
 	print('getting 48h forecast (onecall)')
+	parameters_onecall = {
+		"lat": lat,
+		"lon": lon,
+		"appid": API_KEY,
+		"units": "metric",
+	}
 
 	response = requests.get(onecall_endpoint, params=parameters_onecall)
 	response.raise_for_status()

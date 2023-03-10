@@ -6,11 +6,11 @@ import pandas as pd
 import api_talk
 import pprint
 
-from apscheduler.schedulers.blocking import BlockingScheduler
-sched = BlockingScheduler()
+# from apscheduler.schedulers.blocking import BlockingScheduler
+# sched = BlockingScheduler()
 runs = 0
 
-FROM_FILE = False
+FROM_FILE = True
 TIME_ZONE = 'Europe/Berlin'
 LABEL_FONTSIZE = 10
 TICKLABEL_SIZE_Y = 'medium'
@@ -27,13 +27,21 @@ col_temp = 'mediumspringgreen'
 col_dew_point = 'aquamarine'
 
 col_chances = ['red', 'orange', 'green']
-text_chances = ['No good', 'Medium', 'Good']
+text_chances = ['Get some sleep!', "We'll see", 'Seems good!']
 
-logging.basicConfig(filename='dataframes.log', encoding='utf-8', level=logging.WARNING)
+# logging.basicConfig(
+#     filename='dataframes.log',
+#     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+#     encoding='utf-8',
+#     level=logging.INFO
+# )
 
 
 class WeatherData:
-    def __init__(self, t='one_call'):
+    def __init__(self, city, lat, lon, t='one_call'):
+        self.city = city
+        self.lat = lat
+        self.lon = lon
         self.time_call = None
         self.type = t
         self.df = None
@@ -56,23 +64,9 @@ class WeatherData:
 
         input: t = 'one_call' / '5d' for one_call(48h or 8d) or 5d (every 3h) forecast
         """
-        # TODO: perhabs only use the next 12h / Time till next dawn?
-
+        # TODO: perhaps only use the next 12h / Time till next dawn?
 
         logging.warning(f"Updating Weather Data. From File: {FROM_FILE}")
-
-        # if not FROM_FILE:
-        #     with open("data/api_counter.txt", "w") as file:
-        #         val = int(file.read())
-        #         val += 1
-        #         logging.warning(f"made {val} API-Calls since March")
-        #         file.write(str(val))
-        #         if val > 950:
-        #             logging.critical(f"API-CALLS ALMOST USED! Only {1000-val} left")
-        #             print(f"API-CALLS ALMOST USED! Only {1000-val} left")
-        #             print(f"API-CALLS ALMOST USED! Only {1000-val} left")
-        #             print(f"API-CALLS ALMOST USED! Only {1000-val} left")
-        #             exit(1)
 
         if self.type == '5d':  # !! Only in 3h-Steps available
             json_file = 'files/weather_data_5d.json'
@@ -90,7 +84,7 @@ class WeatherData:
                 data = json.load(file)
         else:
             with open(json_file, 'w') as file:
-                data = call_api()
+                data = call_api(self.lat, self.lon)
                 file.write(json.dumps(data))
 
         # ----------- for 5d forecast: ----------- #
@@ -219,12 +213,12 @@ class WeatherData:
             self.col_cs_chance = col_chances[0]
             self.should_alert = False
 
-    def plot_data(self):
         """
         Plots the most important values (probability, temp, humidity, wind) via matplotlib
         """
         plt.close()
         plt.style.use('dark_background')
+        print("Creating Plot")
 
         fig, axs = plt.subplots(
             2, 1,
@@ -233,7 +227,7 @@ class WeatherData:
         )
 
         fig.suptitle(
-            f"\n{self.text_cs_chance} chances within the next hours",
+            f"\n{self.city}: {self.text_cs_chance}",
             fontsize='xx-large',
             color=self.col_cs_chance
         )
@@ -424,8 +418,10 @@ class WeatherData:
                 # labelbottom=True,
                 pad=2,
             )
+        filepath = f'figures/{self.city}-{self.type}.png'
+        plt.savefig(filepath)  #
+        print(f"Plot saved as {filepath}")
 
-        plt.savefig(f'figures/{self.type}.png')  #
 
     def check_for_changes(self):
         dataset = self.df[['dt', 'probability', 'is_cs']].set_index('dt')
@@ -468,16 +464,19 @@ class WeatherData:
 
 
 
-@sched.scheduled_job('cron', minute=20)
-def check_weather():
+# @sched.scheduled_job('cron', minute=20)
+# def check_weather():
+#     weather = WeatherData()
+#     weather.update_weather_data()
+#     # TODO: Problem with plotting data outside of main func:
+#     #  https://stackoverflow.com/questions/34764535/why-cant-matplotlib-plot-in-a-different-thread
+#     #weather.plot_data()
+#     # weather.check_for_changes()
+#     logging.warning("__________________END___________________")
+#
+#
+if __name__ == "__main__":
+    #     sched.start()
     weather = WeatherData()
     weather.update_weather_data()
-    # TODO: Problem with plotting data outside of main func:
-    #  https://stackoverflow.com/questions/34764535/why-cant-matplotlib-plot-in-a-different-thread
-    #weather.plot_data()
-    # weather.check_for_changes()
-    logging.warning("__________________END___________________")
-
-
-if __name__ == "__main__":
-    sched.start()
+    # weather.plot_data()
