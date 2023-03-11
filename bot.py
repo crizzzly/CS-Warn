@@ -1,12 +1,11 @@
+import csv
 import logging
 import os
-import pprint
 import datetime
 import pytz
 import werkzeug.exceptions
 
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from apscheduler.triggers.cron import CronTrigger
+# from errorhandler_bot import error_handler, bad_command
 from geopy.geocoders import Nominatim
 from telegram import ReplyKeyboardRemove, Update
 from telegram.ext import (
@@ -18,15 +17,24 @@ from telegram.ext import (
     filters,
 )
 
-from server import user_add, user_list, user_detail, user_delete, new_weather_data
+from server import (
+    user_add,
+    user_list,
+    user_detail,
+    user_delete,
+    city_add,
+    city_list,
+    city_get_name,
+    city_get_coord,
+    new_weather_data,
+)
 from weather_data import WeatherData
 
 logging.basicConfig(
-    filename='bot.log',
+    filename='logfiles/bot.log',
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
 )
-
 
 telegram_bot_token = os.environ.get('CS_ALERT_TELEGR_ACCESS_TOKEN')
 channel_id = '@CS_Alert_Alb'
@@ -35,10 +43,22 @@ MAX_CHARS = 4096
 
 NAME, LOCATION, CITY = range(3)
 user_name = ""
-users_list = []
-cities = [WeatherData("Heubach", 48.7913507, 9.9363623),
-          WeatherData("Stuttgart", 48.7784485, 9.1800132),
-          WeatherData("Bisingen", 48.3120203, 8.9163672)]
+
+# with open('instance/testusers.csv') as f:
+#     user_csv = csv.DictReader(f)
+#     for u.
+
+
+# for cty
+cities = [WeatherData(city.name, city.lat, city.lon) for city in city_list()]
+for c in cities:
+    c.update_weather_data()
+    new_weather_data(c.df, c.city)
+
+
+# run once to add to db
+# for cty in cities:
+#     city_add(cty.city, cty.lat, cty.lon)
 
 
 async def send_all_plots(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -53,6 +73,7 @@ async def send_all_plots(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_text(f"Error while trying to send photo:\n{e}")
     if not alert:
         await update.message.reply_text("None of our friends seems to have luck")
+
 
 async def send_plot(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
@@ -80,14 +101,16 @@ async def send_plot(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # to regularly update weather data of all saved cities
 async def update_weather_data(context: ContextTypes.DEFAULT_TYPE):
     """
-    Updates WeatherData via weather api. Send according data to every user.
+    Updates WeatherData via weather api. Send according data to every user if this is first run per day.
+    in every other run it compares if chances have changend and only alerts if so
     If there's a medium/good chance in one city it sends the plot to user group
-    :param context:
-    :return:
+    :param context: application context
+    :return: None
     """
     users = user_list()
 
     logging.info("Updating Weather Data")
+    # update weather data for every city
     for city in cities:
         city.update_weather_data()
         try:
@@ -98,18 +121,18 @@ async def update_weather_data(context: ContextTypes.DEFAULT_TYPE):
         except RuntimeWarning as w:
             logging.warning(f"Runntime warning while trying to send photo: \n{w}")
             await context.bot.send_message("Something might have gone wrong")
+    # send weather plot to users
     for user in users:
-        try:
-            # await update.message.reply_photo(open(f'figures/{city.city}-{city.type}.png', 'rb'))
-            await context.bot.sendPhoto(user.user_id, open(f'figures/{user.city}-one_call.png', 'rb'))
-        except Exception as e:
-            logging.exception(f'send_plot: \n{e}')
-            print(e)
-            # await update.message.reply_text(f"Error while trying to send photo:\n{e}")
-
-
-async def update_user_list():
-    pass
+        if context.job.data:
+            try:
+                # await update.message.reply_photo(open(f'figures/{city.city}-{city.type}.png', 'rb'))
+                await context.bot.sendPhoto(user.user_id, open(f'figures/{user.city}-one_call.png', 'rb'))
+            except Exception as e:
+                logging.exception(f'send_plot: \n{e}')
+                print(e)
+                # await update.message.reply_text(f"Error while trying to send photo:\n{e}")
+        else:
+            pass
 
 
 ########################## START CONVERSATION ######################
@@ -143,36 +166,42 @@ async def new_user(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     return LOCATION
 
 
-async def location(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+async def location(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Stores the location and says bye."""
     user = update.message.from_user
     loc = update.message.location
     locator = Nominatim(user_agent="My_App")
-    city = locator.reverse(f"{loc.latitude}, {loc.longitude}")
+    city_name = locator.reverse(f"{loc.latitude}, {loc.longitude}")
     logging.info(
         "Location of %s: %f / %f", user_name, loc.latitude, loc.longitude
     )
+
+    # check if city is in db, if not create new entry
     try:
-        user_add(name=user_name, city=city, user_id=user.id, lat=loc.latitude, lon=loc.longitude)
+        if not city_get_coord(city_name):
+            logging.info(f"Creating new WeatherData instance for {city_name}")
+            city_add(city_name, loc.latitude, loc.longitude)
+            new_data = WeatherData(city=city_name, lat=loc.latitude, lon=loc.longitude)
+            new_data.update_weather_data()
+            new_weather_data(new_data.df, city_name)
+            # cities.append(new_data)
+    except LookupError as e:
+        logging.error("Something went wrong while trying to create new WeatherData")
+        return None
+
+    try:
+        user_add(name=user_name, city=city_name, user_id=user.id, lat=loc.latitude, lon=loc.longitude)
     except Exception as e:
         logging.error(e)
         await update.message.reply_text(f"Error: \n{e}")
-    logging.info(f"created user {user} from {city}")
-
-    try:
-        if city not in user_list():
-            logging.info(f"Creating new WeatherData instance for {city}")
-            new_data = WeatherData(city=city, lat=loc.latitude, lon=loc.longitude)
-            new_data.update_weather_data()
-            new_weather_data(new_data.df)
-            cities.append(new_data)
-    except LookupError as e:
-        logging.error("Something went wrong while trying to create new WeatherData")
+        return None
+    logging.info(f"created user {user} from {city_name}")
 
     try:
         await update.message.reply_text("Great. That's all!")
     except Exception as e:
         await update.message.reply_text(f"Error: \n{e}")
+        return None
     return ConversationHandler.END
 
 
@@ -186,27 +215,62 @@ async def skip_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def find_coordinates(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Finds Coordinates by Name given by user
+    creates new user, city&weatherdata (if needed) in db
+    """
     user = update.message.from_user
+    city_name = update.message.text
     geolocator = Nominatim(user_agent="MyApp")
     loc = geolocator.geocode(update.message.text)
+
+
+    if loc is None:
+        await update.message.reply_text(f"Can't find name {city_name}\nPlease try again")
+        return None
+
     logging.info(
         f"Location of {user_name}: {loc.latitude, loc.longitude}",
     )
+
+    # convert string to camelcase
+    city_name = city_name[0].upper() + city_name[1:].lower()
+
+    # check if city is in db, if not create new entry
     try:
-        user_add(name=user_name, city=update.message.text, user_id=user.id, lat=loc.latitude, lon=loc.longitude)
-    except Exception as e:
-        await update.message.reply_text(f"Error while saving userdata: \n{e}")
-    try:
-        await update.message.reply_text("Great. That's all!")
-    except Exception as e:
-        await update.message.reply_text(f"Error: \n{e}")
-    return ConversationHandler.END
+        logging.info(f"Creating new WeatherData instance for {city_name}")
+        city_add(city_name, loc.latitude, loc.longitude)
+    except (Exception, TypeError) as e:
+        logging.warning(e)
+        logging.info("passing")
+    else:
+        new_data = WeatherData(city=city_name, lat=loc.latitude, lon=loc.longitude)
+        await new_data.update_weather_data()
+        try:
+            new_weather_data(new_data.df, city_name)
+            # cities.append(new_data)
+        except LookupError as e:
+            logging.error("Something went wrong while trying to create new WeatherData")
+            return None
+    finally:
+        try:
+            user_add(name=user_name, city=city_name, user_id=user.id)
+        except Exception as e:
+            await update.message.reply_text(f"Error while saving userdata: \n{e}")
+            return None
+        try:
+            await update.message.reply_text("Great. That's all!")
+        except Exception as e:
+            await update.message.reply_text(f"Error: \n{e}")
+        return ConversationHandler.END
+
 
 ################### CONVERSATION END #####################
 
 
 # get all users
 async def list_all_cities(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Sends all cities stored in db"""
     try:
         users = user_list()
         msg = "Cities: \n"
@@ -221,6 +285,7 @@ async def list_all_cities(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def list_user_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """List user detail"""
     user = update.message.from_user
     try:
         details = user_detail(user.id)
@@ -234,6 +299,7 @@ async def list_user_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def delete_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Deletes user by user_id"""
     user = update.message.from_user
     logging.info(f'deleting user {user.id}')
     try:
@@ -298,10 +364,17 @@ async def unset(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     text = "Timer successfully cancelled!" if job_removed else "You have no active timer."
     await update.message.reply_text(text)
 
+
 ##################### Timer End ##############################
 
 
 async def available_commands(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    '/help' command shows every for user available command
+    :param update:
+    :param context:
+    :return:
+    """
     msg = "Available commands: \n " \
           "/all - lists all current saved cities \n" \
           "/start - conversation to add yourself as new user \n" \
@@ -314,6 +387,7 @@ async def available_commands(update: Update, context: ContextTypes.DEFAULT_TYPE)
     except Exception as e:
         await update.message.reply_text(f"Error: \n{e}")
 
+
 app = Application.builder().token(token=telegram_bot_token).build()
 conv_handler = ConversationHandler(
     entry_points=[CommandHandler("start", start)],
@@ -325,9 +399,10 @@ conv_handler = ConversationHandler(
         ],
         CITY: [MessageHandler(filters.TEXT, find_coordinates)]
     },
-    fallbacks=[CommandHandler('cancel', cancel)]
+    fallbacks=[CommandHandler('cancel', cancel)],
+    name="new_user_conv",
+    # block=True
 )
-
 
 app.add_handler(conv_handler)
 app.add_handler(CommandHandler('all', list_all_cities))
@@ -338,36 +413,41 @@ app.add_handler(CommandHandler('weather', send_plot))
 app.add_handler(CommandHandler('set', set_timer))
 app.add_handler(CommandHandler('unset', unset))
 app.add_handler(CommandHandler('help', available_commands))
+# app.add_handler(CommandHandler('bad_command', bad_command))
+# app.add_error_handler(error_handler)
 
 ################# Timers Update WeatherData #############
 app.job_queue.run_daily(  # 12.00
-            update_weather_data,
-            days=(0, 1, 2, 3, 4, 5, 6),
-            time=datetime.time(
-                hour=12,
-                minute=00,
-                second=00,
-                tzinfo=pytz.timezone("Europe/Berlin")
-            ),
+    update_weather_data,
+    days=(0, 1, 2, 3, 4, 5, 6),
+    time=datetime.time(
+        hour=12,
+        minute=00,
+        second=00,
+        tzinfo=pytz.timezone("Europe/Berlin")
+    ),
+    data=True,
 )
 app.job_queue.run_daily(  # 15.00
-            update_weather_data,
-            days=(0, 1, 2, 3, 4, 5, 6),
-            time=datetime.time(
-                hour=18,
-                minute=00,
-                second=00,
-                tzinfo=pytz.timezone("Europe/Berlin")
-            ),
+    update_weather_data,
+    days=(0, 1, 2, 3, 4, 5, 6),
+    time=datetime.time(
+        hour=18,
+        minute=00,
+        second=00,
+        tzinfo=pytz.timezone("Europe/Berlin")
+    ),
+    data=False
 )
 app.job_queue.run_daily(  # 18.00
-            update_weather_data,
-            days=(0, 1, 2, 3, 4, 5, 6),
-            time=datetime.time(
-                hour=18,
-                minute=00,
-                second=00,
-                tzinfo=pytz.timezone("Europe/Berlin")
-            ),
+    update_weather_data,
+    days=(0, 1, 2, 3, 4, 5, 6),
+    time=datetime.time(
+        hour=18,
+        minute=00,
+        second=00,
+        tzinfo=pytz.timezone("Europe/Berlin")
+    ),
+    data=False
 )
 app.run_polling()

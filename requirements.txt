@@ -13,3 +13,5 @@ SQLAlchemy==2.0.5.post1
 xmltodict~=0.13.0
 matplotlib==3.7.1
 pandas~=1.5.3
+pytz~=2022.7.1
+Werkzeug~=2.2.3

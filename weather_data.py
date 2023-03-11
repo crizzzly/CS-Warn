@@ -46,8 +46,6 @@ class WeatherData:
         self.type = t
         self.df = None
         self.plot_title = ''
-        self.sunset = None
-        self.sunrise = None
         self.tz_offset = 0
         self.ids = []
         self.icons = []
@@ -98,8 +96,8 @@ class WeatherData:
             sunset = pd.to_datetime(data['city']['sunset'], unit='s', origin='unix', utc=True)
 
             # Convert to local timezone
-            self.sunrise = sunrise.tz_convert(TIME_ZONE)
-            self.sunset = sunset.tz_convert(TIME_ZONE)
+            self.df.sunrise[0] = sunrise.tz_convert(TIME_ZONE)
+            self.df.sunset[0] = sunset.tz_convert(TIME_ZONE)
 
             # Make Dictionaries in Cells better accessable
             # Main
@@ -141,10 +139,10 @@ class WeatherData:
 
             # Convert to local timezone
             df_daily.dt = df_daily.dt.dt.tz_convert(TIME_ZONE)
-            df_daily.sunrise = df_daily.sunrise.dt.tz_convert(TIME_ZONE)
-            df_daily.sunset = df_daily.sunset.dt.tz_convert(TIME_ZONE)
-            self.sunrise = df_daily.sunrise[0]
-            self.sunset = df_daily.sunset[0]
+            self.sunrise = df_daily.sunrise.dt.tz_convert(TIME_ZONE)
+            self.sunset = df_daily.sunset.dt.tz_convert(TIME_ZONE)
+            self.df['sunrise'] = df_daily.sunrise
+            self.df['sunset'] = df_daily.sunset
 
         # ----------- for 5d & onecall: ----------- #
         # convert dt from int to timeseries/timestamps
@@ -153,7 +151,7 @@ class WeatherData:
 
         # to easily check if time is at night
         self.df['is_night'] = [
-            True if self.df.dt[i].time() < self.sunrise.time() or self.sunset.time() < self.df.dt[i].time() else False
+            True if self.df.dt[i].time() < self.df.sunrise[0].time() or self.df.sunset[0].time() < self.df.dt[i].time() else False
             for i in self.df.index
         ]
 
@@ -179,7 +177,7 @@ class WeatherData:
 
         # Kick unused Columns
         self.df = self.df[[
-            'dt', 'temp', 'humidity', 'clouds', 'dew_point', 'wind_speed',
+            'dt', 'sunset', 'sunrise', 'temp', 'humidity', 'clouds', 'dew_point', 'wind_speed',
             'wind_deg', 'wind_gust', 'is_night', 'probability', 'is_cs'
         ]]
 
@@ -385,8 +383,8 @@ class WeatherData:
         )
 
         # ---------- X-Axis Labels ---------- #
-        minor_labels = [self.sunrise.hour, self.sunset.hour]
-        # print(f"sunrise/set: {self.sunrise, self.sunset}")
+        minor_labels = [self.df.sunrise[0].hour, self.df.sunset[0].hour]
+        # print(f"sunrise/set: {self.df.sunrise[0], self.df.sunset[0]}")
         # print(f'minor labels: {minor_labels}')
         minor_labels.sort()
 
