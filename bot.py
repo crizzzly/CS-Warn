@@ -46,9 +46,10 @@ NAME, LOCATION, CITY = range(3)
 
 # time to run code automatically [h, m]
 run_times = [
-    {'h': 13, 'm': 30},
-    {'h': 15, 'm': 10},
-    {'h': 22, 'm': 13},
+    {'h': 12, 'm': 0},
+    {'h': 15, 'm': 0},
+    {'h': 18, 'm': 0},
+    {'h': 20, 'm': 0},
 ]
 
 # with open('instance/testusers.csv') as f:
@@ -539,7 +540,17 @@ app.job_queue.run_daily(  # 18.00
     ),
     data=2
 )
-
+app.job_queue.run_daily(  # 18.00
+    update_weather_data,
+    days=(0, 1, 2, 3, 4, 5, 6),
+    time=datetime.time(
+        hour=run_times[3]['h'],
+        minute=run_times[3]['m'],
+        second=00,
+        tzinfo=pytz.timezone("Europe/Berlin")
+    ),
+    data=3
+)
 
 # async def at_exit_0():
 #     await app.stop()
