@@ -1,14 +1,18 @@
 import logging
 import os
+from sqlite3 import IntegrityError, Error
+from typing import Any, Iterator
+
 import pandas as pd
-import requests
-from flask import Flask, request, redirect, url_for
+from flask import Flask
 from flask_sqlalchemy import SQLAlchemy
-
-from sqlite3 import IntegrityError, InternalError, Error
-
+from pandas import DataFrame
+from sqlalchemy.exc import OperationalError
 
 # https://flask-sqlalchemy.palletsprojects.com/en/3.0.x/
+# https://docs.sqlalchemy.org/en/20/index.html
+# https://github.com/python-telegram-bot/python-telegram-bot/wiki
+
 app = Flask(__name__)
 
 ##CREATE DATABASE
@@ -25,13 +29,23 @@ class User(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String, nullable=True)
-    user_id = db.Column(db.Integer, unique=True, nullable=True)
-    # lat = db.Column(db.Float, nullable=True)
-    # lon = db.Column(db.Float, nullable=True)
+    user_id = db.Column(db.Integer, nullable=True)
     city = db.Column(db.String, db.ForeignKey('cities.name'))
-    # weather = db.relationship("WeatherData")
+    # weather = db.relationship("Weather")
 
     # weather_id = db.Column(db.Integer, db.ForeignKey('weather_data.id'))
+
+# class Base(db.Model):
+#     pass
+# # note for a Core table, we use the sqlalchemy.Column construct,
+# # not sqlalchemy.orm.mapped_column
+# association_table = db.Table(
+#     "association_table",
+#     Base.metadata,
+#     # db.Column("left_id", db.ForeignKey("left_table.id")),
+#     db.Column("city_id", db.ForeignKey("cities.id")),
+#     db.Column("weather_id", db.ForeignKey("weather_data.id")),
+# )
 
 
 class City(db.Model):
@@ -43,15 +57,13 @@ class City(db.Model):
     lat = db.Column(db.Float, nullable=False)
     lon = db.Column(db.Float, nullable=False)
     users = db.relationship('User')
-    weather = db.relationship('WeatherData')
-    # user_id = db.Column(db.Integer, db.ForeignKey('users.id'))
 
 
-class WeatherData(db.Model):
+
+class Weather(db.Model):
     __tablename__: str = 'weather_data'
-
     daytime = db.Column(db.DateTime, primary_key=True)
-    # city = db.Column(db.String, nullable=False)
+    # city_name = db.Column(db.String, nullable=False)
     sunrise = db.Column(db.DateTime, nullable=True)
     sunset = db.Column(db.DateTime, nullable=True)
     temp = db.Column(db.Float, nullable=True)
@@ -60,11 +72,12 @@ class WeatherData(db.Model):
     probability = db.Column(db.Integer, nullable=True)
     wind_speed = db.Column(db.Float, nullable=True)
     wind_gust = db.Column(db.Float, nullable=True)
-    # city_id = db.relationship('User', back_populates='weather')
-    city = db.Column(db.String, db.ForeignKey('cities.name'))
+    # city_name: db.Mapped["City"] = db.relationship(back_populates="weather_data")
 
-# with app.app_context():
-#     db.create_all()
+
+
+with app.app_context():
+    db.create_all()
 
 
 ################### CITY ########################
@@ -74,8 +87,8 @@ def city_add(name, lat, lon):
         try:
             db.session.add(cty)
         except IntegrityError as e:
-            logging.error(msg="Exception while adding city:", exc_info=e)
-        finally:
+            logging.error(msg="server.py: Exception while adding city_name:", exc_info=e)
+        else:
             db.session.commit()
 
 
@@ -84,9 +97,10 @@ def city_get_coord(name):
         try:
             city = db.get_or_404(City, name)
         except Error as e:
-            logging.warning(f"{name} not found in cities: \n{e}")
+            logging.warning(f"server.py: {name} not found in cities: \n{e}")
             return False
-        return city.lat, city.lon
+        else:
+            return city.lat, city.lon
 
 
 def city_get_name(lat, lon):
@@ -94,15 +108,19 @@ def city_get_name(lat, lon):
         try:
             city = db.get_or_404(City, (lat, lon))
         except Error as e:
-            logging.warning(f"{lat}, {lon} not found in cities: \n{e}")
+            logging.exception(f"server.py: {lat}, {lon} not found in cities: \n", e)
             return False
-        return city.name
+        else:
+            return city.name
 
 
 def city_list():
     with app.app_context():
         # users = db.session.execute(db.select(User).order_by(User.name))# .scalars()
-        cty = City.query.all()
+        try:
+            cty = City.query.all()
+        except Error as e:
+            logging.exception("server.py: Exception in server.py - city_list\ntrying to query all cities", e)
     return cty
 
 
@@ -111,7 +129,10 @@ def city_list():
 def user_list():
     with app.app_context():
         # users = db.session.execute(db.select(User).order_by(User.name))# .scalars()
-        users = User.query.all()
+        try:
+            users = User.query.all()
+        except Error as e:
+            logging.exception("Exception while trying to query all users", e)
     return users
 
 
@@ -124,54 +145,72 @@ def user_add(name, user_id, city):
 
     )
     with app.app_context():
-        db.session.add(user)
-        db.session.commit()
-    return "success??"
+        try:
+            db.session.add(user)
+        except Error as e:
+            logging.exception("Exception in server.py - user_add while trying to add new user", e)
+        else:
+            db.session.commit()
 
 
 @app.route("/user/<int:id>")
-def user_detail(user_id):
+def user_detail(user_id) -> bool | Any:
     with app.app_context():
         # stmt = select(User).where(User.user_id == user_id)
         # user = db.session.execute(stmt)
         try:
-            user = db.get_or_404(User, user_id)
-        except Exception:
-            return None
-        return user
+            # user = db.get_or_404(User, user_id)
+            user = db.first_or_404(db.select(User).filter_by(user_id=user_id))
+        except Error as e:
+            logging.exception(f"server.py: Exception in 'user_detail'\n"
+                              f"Exception while trying to get user by id {user_id}", e)
+            return False
+        else:
+            return user
 
 
 @app.route("/user/<int:id>/delete", methods=["GET", "POST"])
 def user_delete(user_id):
     with app.app_context():
-        user = db.get_or_404(User, user_id)
+        try:
+            user = db.first_or_404(db.select(User).filter_by(user_id=user_id))
+        except Error as e:
+            logging.exception(f"server.py: Error while getting user {user_id}")
         db.session.delete(user)
         db.session.commit()
     return "success"
 
 
 ####################### WEATHER ######################
-def new_weather_data(weather_df: pd.DataFrame, city):
-    # for row in weather_df.iterrows():
-    #     weather = WeatherData(
-    #         daytime=row.dt,
-    #         city=city,
-    #         sunrise=row.sunrise,
-    #         sunset=row.sunset,
-    #         temp=row.temp,
-    #         dew_point=row.dew_point,
-    #         humidity=row.humidity,
-    #         probability=row.probability,
-    #         wind_speed=row.wind_speed,
-    #         wind_gust=row.wind_gust,
-    #         # lat=weather_df.weather_dflat,
-    #         # lon=weather_df.lon,
-    #     )
+def new_weather_data(weather_df: pd.DataFrame, city, run=0):
+    logging.info(f"server.py: saving new weather data for {city} ,run{run} to db ")
     with app.app_context():
-        weather_df.to_sql(name=city, con=db.engine)
+        weather_df.to_sql(
+            name=city + str(run),
+            con=db.engine,
+            if_exists='append',
+        )
         # db.session.add(weather)
         db.session.commit()
-    return "success??"
+
+
+def add_weather_data(weather_df: pd.DataFrame, city):
+    with app.app_context():
+        pass
+
+
+def get_weather_data(city: str, run=0) -> Exception | Iterator[DataFrame] | DataFrame:
+
+    with app.app_context():
+        try:
+            # city_name = pd.read_sql_table(name=city_name, con=db.engine)
+            weather = pd.read_sql(sql=city+str(run), con=db.engine) #  , parse_dates=['dt'])
+        except OperationalError as e:
+            logging.exception("server.py: error in get_weather_data", e)
+            return Exception(e)
+    return weather
+
+####################### END WEATHER ######################
 
 
 port = int(os.environ.get('PORT', 5000))

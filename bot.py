@@ -1,11 +1,10 @@
-import csv
+import atexit
+import datetime
 import logging
 import os
-import datetime
+
 import pytz
 import werkzeug.exceptions
-
-# from errorhandler_bot import error_handler, bad_command
 from geopy.geocoders import Nominatim
 from telegram import ReplyKeyboardRemove, Update
 from telegram.ext import (
@@ -17,6 +16,7 @@ from telegram.ext import (
     filters,
 )
 
+from errorhandler_bot import error_handler
 from server import (
     user_add,
     user_list,
@@ -24,9 +24,9 @@ from server import (
     user_delete,
     city_add,
     city_list,
-    city_get_name,
     city_get_coord,
     new_weather_data,
+    get_weather_data,
 )
 from weather_data import WeatherData
 
@@ -38,11 +38,18 @@ logging.basicConfig(
 
 telegram_bot_token = os.environ.get('CS_ALERT_TELEGR_ACCESS_TOKEN')
 channel_id = '@CS_Alert_Alb'
-my_id = 5897239945
+MY_ID = os.environ.get('CS_ALERT_TELEGR_ID')
+
 MAX_CHARS = 4096
 
 NAME, LOCATION, CITY = range(3)
-user_name = ""
+
+# time to run code automatically [h, m]
+run_times = [
+    {'h': 13, 'm': 30},
+    {'h': 15, 'm': 10},
+    {'h': 22, 'm': 13},
+]
 
 # with open('instance/testusers.csv') as f:
 #     user_csv = csv.DictReader(f)
@@ -50,89 +57,151 @@ user_name = ""
 
 
 # for cty
-cities = [WeatherData(city.name, city.lat, city.lon) for city in city_list()]
-for c in cities:
-    c.update_weather_data()
-    new_weather_data(c.df, c.city)
-
-
-# run once to add to db
-# for cty in cities:
-#     city_add(cty.city, cty.lat, cty.lon)
+weather_per_city = [WeatherData(city.name, city.lat, city.lon) for city in city_list()]
 
 
 async def send_all_plots(update: Update, context: ContextTypes.DEFAULT_TYPE):
     alert = False
-    for city in cities:
+    # think I don't need this cause last run-number is saved in instance
+    # time_now = datetime.datetime.now(tz=pytz.timezone('Europe/Berlin'))
+    # run = None
+    # for i in range(len(run_times)):
+    #     pos = len(run_times) - i
+    #     if time_now.hour >= run_times[pos]['h'] and time_now.minute >= run_times[pos]['m']:
+    #         run = pos
+    for city in weather_per_city:
         if city.should_alert:
             alert = True
             try:
-                await update.message.reply_photo(open(f'figures/{city.city}-{city.type}.png', 'rb'))
-            except Exception as e:
-                print(e)
-                await update.message.reply_text(f"Error while trying to send photo:\n{e}")
+                await update.message.reply_photo(open(f'figures/{city.city_name}-{city.run}.png', 'rb'))
+            except (Exception, FileNotFoundError) as e:
+                txt = f"bot.py: Error while trying to send photo in 'bot.py send_all_plots':"
+                logging.exception(txt, e)
+                await update.message.reply_text(f"{txt}:\n, {e}")
     if not alert:
         await update.message.reply_text("None of our friends seems to have luck")
 
 
 async def send_plot(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    Command '/my_weather'
+    Command '/weather'
     sends last created weather plot
     :param update:
     :param context:
     :return:
     """
     u = update.message.from_user
+
+    time_now = datetime.datetime.now(tz=pytz.timezone('Europe/Berlin'))
+    run = None
+    for i in range(len(run_times)):
+        pos = len(run_times) - i
+    if time_now.hour >= run_times[2]['h'] and time_now.minute >= run_times[2]['m']:
+        run = 2
+    elif time_now.hour >= run_times[1]['h'] and time_now.minute >= run_times[1]['m']:
+        run = 1
+    else:
+        run = 0
+    logging.warning(f"bot.py: Number of last run: {run}")
+
     try:
         user = user_detail(u.id)
-        try:
-            await update.message.reply_photo(f'figures/{user.city}-onecall.png')
-        except Exception as e:
-            logging.exception(e)
-            await update.message.reply_text(f"Exception while sending plot: \n{e}")
-
     except werkzeug.exceptions.NotFound as e:
-        msg = f"Error while trying to find user_id {u.id} in db:\n No such id\n{e}"
-        logging.exception(msg)
+        msg = f"bot.py: Error in 'bot.py send_plot':\n Error while trying to find user_id {u.id} in db:\n No such id\n{e}"
+        logging.exception(msg, e)
         await update.message.reply_text(msg)
+    else:
+        try:
+            await update.message.reply_photo(f'figures/{user.city}-{run}.png')
+        except Exception as e:
+            txt = f"bot.py: Exception in 'bot.py send_plot' while sending plot:"
+            logging.exception(txt, e)
+            await update.message.reply_text(f"{txt}\n{e}")
 
 
-# to regularly update weather data of all saved cities
+# to regularly update weather data of all saved weather_per_city
 async def update_weather_data(context: ContextTypes.DEFAULT_TYPE):
     """
     Updates WeatherData via weather api. Send according data to every user if this is first run per day.
     in every other run it compares if chances have changend and only alerts if so
-    If there's a medium/good chance in one city it sends the plot to user group
+    If there's a medium/good chance in one city_name it sends the plot to user group
     :param context: application context
     :return: None
     """
     users = user_list()
+    run = context.job.data
+    # TODO: Check changes func in weather_data - > simplest way? compared data?? used dataframe options accordingly?
+    #  CS Marker in plotting - does it set the marker on the right position?
 
-    logging.info("Updating Weather Data")
-    # update weather data for every city
-    for city in cities:
-        city.update_weather_data()
-        try:
-            if city.should_alert:
-                await context.bot.sendPhoto(channel_id, open(f'figures/{city.city}-one_call.png', 'rb'))
-            else:
-                await context.bot.send_message(chat_id=channel_id, text="No good chances today")
-        except RuntimeWarning as w:
-            logging.warning(f"Runntime warning while trying to send photo: \n{w}")
-            await context.bot.send_message("Something might have gone wrong")
-    # send weather plot to users
-    for user in users:
-        if context.job.data:
-            try:
-                # await update.message.reply_photo(open(f'figures/{city.city}-{city.type}.png', 'rb'))
-                await context.bot.sendPhoto(user.user_id, open(f'figures/{user.city}-one_call.png', 'rb'))
-            except Exception as e:
-                logging.exception(f'send_plot: \n{e}')
-                print(e)
-                # await update.message.reply_text(f"Error while trying to send photo:\n{e}")
-        else:
+    logging.info("bot.py: Updating Weather Data")
+    # update weather data for every city_name and send to group if anyone has good chances
+    for city in weather_per_city:
+        logging.info(f"bot.py: Updating weather data for {city.city_name}\nRun: {run}")
+        city.update_weather_data(run=run)
+        new_weather_data(city.df, city.city_name, run=run)
+        if run == 0:
             pass
+        if run > 0:
+            last_weather = get_weather_data(city.city_name, run=(run-1))
+            city.check_for_changes(last_weather)
+            logging.info(f"bot.py: Should alert is set to: {city.should_alert}\n"
+                         f"sending plot for {city.city_name} to {channel_id}\nRun: {run}")
+            # logging.info(f"bot.py: sending plot for {city.city_name} to {channel_id}\nRun: {run}")
+            # await context.bot.sendPhoto(channel_id, open(f'figures/{city.city_name}-{run}', 'rb'))
+
+        if city.should_alert or run == 0:
+            try:
+                # await context.bot.send_message(channel_id, f"run: {run}, city: {city.city_name}")
+                await context.bot.sendPhoto(channel_id, open(f'figures/{city.city_name}-{run}.png', 'rb'))
+                for user in users:
+                    if city.city_name == user.city:
+                        logging.info(f"bot.py: sending plot for {city.city_name} to {user.name}")
+                        try:
+                            await context.bot.sendPhoto(user.user_id, open(f'figures/{user.city}-{run}.png', 'rb'))
+                        except (Exception, FileNotFoundError) as e:
+                            logging.exception(f'bot.py: send_plot  in "update_weather_data": \n{e}')
+                            print(e)
+            except RuntimeWarning as w:
+                logging.warning(
+                    f"bot.py: Runtime warning while trying to send photo in 'bot.py update_weather_data': \n{w}")
+                await context.bot.send_message("Something might have gone wrong")
+
+        elif run == 0 and not city.should_alert:
+            logging.info(f"Bot.py: No good chances for {city.city_name}")
+            # await context.bot.send_message(chat_id=channel_id, text=f"No good chances in {city.city_name}.")
+        else:
+            logging.info(f"bot.py: Run number {run}. Skipping user message")
+
+
+async def list_user_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """List user detail"""
+    user = update.message.from_user
+    try:
+        details = user_detail(user.id)
+        print(details)
+    except Exception as e:
+        await update.message.reply_text(f"Error while fetching user data from {user.name}, id:{user.id} in 'bot.py - list_user_detail': \n{e}")
+        return None
+    else:
+        try:
+            await update.message.reply_text(f'Details:\nName: {details.name}, id: {details.user_id}, city: {details.city}')
+        except Exception as e:
+            await update.message.reply_text(f"Error in bot.py - list_user_detail while trying to send message: \n{e}")
+            return None
+
+
+async def delete_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Deletes user by user_id"""
+    user = update.message.from_user
+    logging.info(f'bot.py: deleting user {user.id}')
+    try:
+        user_delete(user.id)
+        try:
+            await update.message.reply_text(f"deleted User {user.name}")
+        except Exception as e:
+            await update.message.reply_text(f"Error: \n{e}")
+    except Exception as e:
+        await update.message.reply_text(f"Error while accessing user data: \n{e}")
 
 
 ########################## START CONVERSATION ######################
@@ -140,9 +209,9 @@ async def update_weather_data(context: ContextTypes.DEFAULT_TYPE):
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Starts the conversation and asks the user about their gender."""
     user = update.message.from_user
-    text = f"Hi {user.username}, I am EchoBot. I will fetch WeatherData for your location several " \
-           f"times a day and send a notification if the sky will be clear within the next hours. " \
-           f"At first I need a Name for my data. " \
+    text = f"Hi {user.username}, I am ClearSky Bot. \nI will fetch WeatherData for your location several " \
+           f"times a day and send a notification if there is any CS-probability within the next 48 hours. \n" \
+           f"At first I need a Name for my data. \n" \
            f"Send '/cancel' to stop me."
 
     await update.message.reply_text(
@@ -156,13 +225,14 @@ async def new_user(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Stores the name and asks for a location."""
     global user_name
     user = update.message.from_user
-    user_name = update.message.text
+    text = update.message.text
+    user_name = text[0].upper() + text[1:].lower()
+    context.user_data['set_name'] = user_name
 
-    logging.info(f"userdata of {user.username}: \n{user.full_name, user.id, user.is_bot, user.is_premium}")
+    logging.info(f"bot.py: New user? {user.username}: \n{user.full_name, user.id, user.is_bot, user.is_premium}")
     await update.message.reply_text(
         "Gorgeous! Now, send me your location please, or send /skip to tell me the City."
     )
-
     return LOCATION
 
 
@@ -172,34 +242,45 @@ async def location(update: Update, context: ContextTypes.DEFAULT_TYPE):
     loc = update.message.location
     locator = Nominatim(user_agent="My_App")
     city_name = locator.reverse(f"{loc.latitude}, {loc.longitude}")
+    u_name = context.user_data['set_name']
     logging.info(
-        "Location of %s: %f / %f", user_name, loc.latitude, loc.longitude
+        "bot.py: Location of %s: %f / %f", u_name, loc.latitude, loc.longitude
     )
 
-    # check if city is in db, if not create new entry
+    # check if city_name is in db, if not create new entry
     try:
         if not city_get_coord(city_name):
-            logging.info(f"Creating new WeatherData instance for {city_name}")
+            logging.info(f"bot.py: Creating new WeatherData instance for {city_name}")
             city_add(city_name, loc.latitude, loc.longitude)
             new_data = WeatherData(city=city_name, lat=loc.latitude, lon=loc.longitude)
             new_data.update_weather_data()
-            new_weather_data(new_data.df, city_name)
-            # cities.append(new_data)
+            try:
+                new_weather_data(new_data.df, city_name)
+            except ValueError as e:
+                logging.exception("bot.py: Value error server.py new_weather_data", e)
+                return None
     except LookupError as e:
-        logging.error("Something went wrong while trying to create new WeatherData")
+        logging.error("bot.py: Something went wrong while trying to create new WeatherData", e)
         return None
 
     try:
-        user_add(name=user_name, city=city_name, user_id=user.id, lat=loc.latitude, lon=loc.longitude)
+        user_add(name=u_name, city=city_name, user_id=user.id, lat=loc.latitude, lon=loc.longitude)
     except Exception as e:
-        logging.error(e)
+        logging.exception(e)
         await update.message.reply_text(f"Error: \n{e}")
         return None
-    logging.info(f"created user {user} from {city_name}")
+    else:
+        logging.info(f"bot.py: Added new user: {u_name} from {city_name}")
+
 
     try:
-        await update.message.reply_text("Great. That's all!")
+        await update.message.reply_text("Great. That's all!\n"
+                                        "You can see the latest created weatherdata by typing '/weather'\n"
+                                        "List all created plots that have CS-probability with '/weather_all'\n"
+                                        f"Update times are: {run_times[0]['h']}:{run_times[0]['m']}, "
+                                        f"{run_times[1]['h']}:{run_times[1]['m']}, {run_times[2]['h']}:{run_times[2]['m']}")
     except Exception as e:
+        logging.exception('Error in bot.py - location', e)
         await update.message.reply_text(f"Error: \n{e}")
         return None
     return ConversationHandler.END
@@ -207,7 +288,7 @@ async def location(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def skip_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
-        await update.message.reply_text("Please enter a city/town/whatever")
+        await update.message.reply_text("Please enter a city_name/town/whatever")
     except Exception as e:
         await update.message.reply_text(f"Error: \n{e}")
 
@@ -217,52 +298,60 @@ async def skip_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def find_coordinates(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     Finds Coordinates by Name given by user
-    creates new user, city&weatherdata (if needed) in db
+    creates new user, city_name&weatherdata (if needed) in db
     """
     user = update.message.from_user
     city_name = update.message.text
     geolocator = Nominatim(user_agent="MyApp")
     loc = geolocator.geocode(update.message.text)
-
+    u_name = context.user_data['set_name']
 
     if loc is None:
         await update.message.reply_text(f"Can't find name {city_name}\nPlease try again")
         return None
 
     logging.info(
-        f"Location of {user_name}: {loc.latitude, loc.longitude}",
+        f"bot.py: Location of {u_name}: {loc.latitude, loc.longitude}",
     )
 
     # convert string to camelcase
     city_name = city_name[0].upper() + city_name[1:].lower()
 
-    # check if city is in db, if not create new entry
+    # check if city_name is in db, if not create new entry
     try:
-        logging.info(f"Creating new WeatherData instance for {city_name}")
+        logging.info(f"bot.py: Creating new WeatherData instance for {city_name}")
         city_add(city_name, loc.latitude, loc.longitude)
     except (Exception, TypeError) as e:
-        logging.warning(e)
-        logging.info("passing")
+        logging.exception("Exception in bot.py - update_weather_data while trying to add new city to db:", e)
+        logging.info(f"bot.py: passing")
     else:
         new_data = WeatherData(city=city_name, lat=loc.latitude, lon=loc.longitude)
-        await new_data.update_weather_data()
+        new_data.update_weather_data()
         try:
             new_weather_data(new_data.df, city_name)
-            # cities.append(new_data)
-        except LookupError as e:
-            logging.error("Something went wrong while trying to create new WeatherData")
+            # weather_per_city.append(new_data)
+        except (LookupError, ValueError) as e:
+            logging.exception("bot.py: Something went wrong while trying to create new WeatherData", e)
             return None
-    finally:
-        try:
-            user_add(name=user_name, city=city_name, user_id=user.id)
-        except Exception as e:
-            await update.message.reply_text(f"Error while saving userdata: \n{e}")
-            return None
-        try:
-            await update.message.reply_text("Great. That's all!")
-        except Exception as e:
-            await update.message.reply_text(f"Error: \n{e}")
-        return ConversationHandler.END
+
+    try:
+        u_id = user.id
+        user_add(name=user_name, city=city_name, user_id=u_id)
+    except Exception as e:
+        logging.exception("bot.py: Error while adding user to db", e)
+        await update.message.reply_text(f"Error while saving userdata: \n{e}")
+        return None
+
+    try:
+        await update.message.reply_text("Great. That's all!\n"
+                                        "You can see the latest created weatherdata for your city by typing '/weather'\n "
+                                        "List all created plots that have CS-probability with '/weather_all'\n"
+                                        f"Update times are: {run_times[0]['h']}:{run_times[0]['m']}, "
+                                        f"{run_times[1]['h']}:{run_times[1]['m']}, {run_times[2]['h']}:{run_times[2]['m']}")
+    except Exception as e:
+        logging.exception("bot.py: Error", e)
+        await update.message.reply_text(f"Error: \n{e}")
+    return ConversationHandler.END
 
 
 ################### CONVERSATION END #####################
@@ -273,49 +362,26 @@ async def list_all_cities(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Sends all cities stored in db"""
     try:
         users = user_list()
+    except Exception as e:
+        txt = f"bot.py: Error while trying to fetch users in 'list_all_cities':"
+        logging.exception(txt, e)
+        await update.message.reply_text(f"{txt}\n{e}")
+    else:
         msg = "Cities: \n"
         for user in users:
             msg += f"{user.city}\n"
         try:
             await update.message.reply_text(msg)
         except Exception as e:
-            await update.message.reply_text(f"Error: \n{e}")
-    except Exception as e:
-        await update.message.reply_text(f"Error while trying to fetch users: \n{e}")
-
-
-async def list_user_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """List user detail"""
-    user = update.message.from_user
-    try:
-        details = user_detail(user.id)
-        print(details)
-        try:
-            await update.message.reply_text(f'Details:\nName: {details.name}, Lat: {details.lat}, Lon: {details.lon}')
-        except Exception as e:
-            await update.message.reply_text(f"Error: \n{e}")
-    except Exception as e:
-        await update.message.reply_text(f"Error while fetching user data: \n{e}")
-
-
-async def delete_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Deletes user by user_id"""
-    user = update.message.from_user
-    logging.info(f'deleting user {user.id}')
-    try:
-        user_delete(user.id)
-        try:
-            await update.message.reply_text(f"deleted User {user.name}")
-        except Exception as e:
-            await update.message.reply_text(f"Error: \n{e}")
-    except Exception as e:
-        await update.message.reply_text(f"Error while accessing user data: \n{e}")
+            txt = f"bot.py: Error while creating message in 'list_all_cities': "
+            logging.exception(txt, e)
+            await update.message.reply_text(f"{txt}\n{e}")
 
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Cancels and ends the conversation."""
     user = update.message.from_user
-    logging.info("User %s canceled the conversation.", user.first_name)
+    logging.info(f"bot.py: User %s canceled the conversation.", user.first_name)
     await update.message.reply_text(
         "Bye! I hope we can talk again some day.", reply_markup=ReplyKeyboardRemove()
     )
@@ -324,7 +390,6 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
 
 ########################### Timer #########################
-
 def remove_job_if_exists(name: str, context: ContextTypes.DEFAULT_TYPE) -> bool:
     """Remove job with given name. Returns whether job was removed."""
     current_jobs = context.job_queue.get_jobs_by_name(name)
@@ -340,15 +405,15 @@ async def set_timer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     chat_id = update.effective_message.chat_id
     try:
         # args[0] should contain the time for the timer in seconds
-        due = int(context.args[0])
+        due = (int(context.args[0]), int(context.args[1]))
         # if h < 0:
         #     await update.effective_message.reply_text("Sorry we can not go back to future!")
         #     return
         job_removed = remove_job_if_exists(str(chat_id), context)
-        context.job_queue.run_once(update_weather_data, due, chat_id=chat_id, name=str(chat_id), data=due)
+        context.job_queue.run_once(update_weather_data, due[0], chat_id=chat_id, name=str(chat_id), data=due[1])
 
-        logging.info(f"Timer set to {due} sec")
-        text = f"Timer successfully set to {due} sec!"
+        logging.info(f"bot.py: Timer set to {due[0]} sec")
+        text = f"Timer successfully set to {due[0]} sec!"
         if job_removed:
             text += " Old one was removed."
         await update.effective_message.reply_text(text)
@@ -363,11 +428,10 @@ async def unset(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     job_removed = remove_job_if_exists(str(chat_id), context)
     text = "Timer successfully cancelled!" if job_removed else "You have no active timer."
     await update.message.reply_text(text)
+############################## Timer End ##############################
 
 
-##################### Timer End ##############################
-
-
+############################ Help Commands ############################
 async def available_commands(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     '/help' command shows every for user available command
@@ -388,6 +452,28 @@ async def available_commands(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text(f"Error: \n{e}")
 
 
+async def admin_commands(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    '/admin' command shows every for user available command
+    :param update:
+    :param context:
+    :return:
+    """
+    msg = "Available commands: \n " \
+          "/all - lists all current saved cities \n" \
+          "/set x - timer for testing update_weather_data. Starts in x seconds\n" \
+          "/start - conversation to add yourself as new user \n" \
+          "/detail - show saved details \n" \
+          "/delete - delete yourself from user list\n" \
+          "/weather - show your latest weather data\n" \
+          "/weather_all - show plots of all saved cities if there's a minimal chance"
+    try:
+        await update.message.reply_text(msg)
+    except Exception as e:
+        await update.message.reply_text(f"Error: \n{e}")
+
+
+########################## Create Application ##########################
 app = Application.builder().token(token=telegram_bot_token).build()
 conv_handler = ConversationHandler(
     entry_points=[CommandHandler("start", start)],
@@ -404,6 +490,8 @@ conv_handler = ConversationHandler(
     # block=True
 )
 
+
+############################## Add handlers ##############################
 app.add_handler(conv_handler)
 app.add_handler(CommandHandler('all', list_all_cities))
 app.add_handler(CommandHandler('detail', list_user_detail))
@@ -413,41 +501,51 @@ app.add_handler(CommandHandler('weather', send_plot))
 app.add_handler(CommandHandler('set', set_timer))
 app.add_handler(CommandHandler('unset', unset))
 app.add_handler(CommandHandler('help', available_commands))
+app.add_handler(CommandHandler('admin', admin_commands))
 # app.add_handler(CommandHandler('bad_command', bad_command))
-# app.add_error_handler(error_handler)
+app.add_error_handler(error_handler)
 
-################# Timers Update WeatherData #############
+###################### Timers To Update WeatherData ######################
 app.job_queue.run_daily(  # 12.00
     update_weather_data,
     days=(0, 1, 2, 3, 4, 5, 6),
     time=datetime.time(
-        hour=12,
-        minute=00,
+        hour=run_times[0]['h'],
+        minute=run_times[0]['m'],
         second=00,
         tzinfo=pytz.timezone("Europe/Berlin")
     ),
-    data=True,
+    data=0,
 )
 app.job_queue.run_daily(  # 15.00
     update_weather_data,
     days=(0, 1, 2, 3, 4, 5, 6),
     time=datetime.time(
-        hour=18,
-        minute=00,
+        hour=run_times[1]['h'],
+        minute=run_times[1]['m'],
         second=00,
         tzinfo=pytz.timezone("Europe/Berlin")
     ),
-    data=False
+    data=1
 )
 app.job_queue.run_daily(  # 18.00
     update_weather_data,
     days=(0, 1, 2, 3, 4, 5, 6),
     time=datetime.time(
-        hour=18,
-        minute=00,
+        hour=run_times[2]['h'],
+        minute=run_times[2]['m'],
         second=00,
         tzinfo=pytz.timezone("Europe/Berlin")
     ),
-    data=False
+    data=2
 )
+
+
+# async def at_exit_0():
+#     await app.stop()
+#     # await app.shutdown()
+
+
+atexit.register(app.stop)
 app.run_polling()
+
