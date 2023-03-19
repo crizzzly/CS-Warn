@@ -1,3 +1,4 @@
+#!/usr/bin/env python3.11
 import logging
 import os
 from sqlite3 import IntegrityError, Error
@@ -154,7 +155,7 @@ def user_add(name, user_id, city):
 
 
 @app.route("/user/<int:id>")
-def user_detail(user_id) -> bool | Any:
+def user_detail(user_id):
     with app.app_context():
         # stmt = select(User).where(User.user_id == user_id)
         # user = db.session.execute(stmt)

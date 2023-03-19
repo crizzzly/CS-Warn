@@ -1,3 +1,4 @@
+#!/usr/bin/env python3.11
 import atexit
 import datetime
 import logging

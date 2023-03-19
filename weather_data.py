@@ -1,3 +1,4 @@
+#!/usr/bin/env python3.11
 import json
 import logging
 import pprint
@@ -67,7 +68,7 @@ class WeatherData:
         logging.info(f"weather_data.py: \nUpdating Weather Data. \n\n{self.city_name}, Run {self.run}\nFrom File: {FROM_FILE}")
         self.run = run
         if self.type == '5d':  # !! Only in 3h-Steps available
-            json_file = 'files/weather_data_5d.json'
+            json_file = 'data/weather_data_5d.json'
             call_api = api_talk.get_5d_forecast
             self.plot_title = f'CS Probability within the next {5 * 24} hours'
         # elif self.t == 'one_call':
