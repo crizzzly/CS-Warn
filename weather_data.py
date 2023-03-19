@@ -73,7 +73,7 @@ class WeatherData:
             self.plot_title = f'CS Probability within the next {5 * 24} hours'
         # elif self.t == 'one_call':
         else:
-            json_file = f'files/weather_data_{self.city_name}.json'
+            json_file = f'data/weather_data_{self.city_name}.json'
             call_api = api_talk.get_onecall_forecast
             self.plot_title = f'CS Probability within the next {2 * 24} hours'
 
