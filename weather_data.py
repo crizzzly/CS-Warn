@@ -9,8 +9,6 @@ import pandas as pd
 
 import api_talk
 
-# from apscheduler.schedulers.blocking import BlockingScheduler
-# sched = BlockingScheduler()
 
 FROM_FILE = False
 TIME_ZONE = 'Europe/Berlin'
@@ -64,16 +62,16 @@ class WeatherData:
         input: t = 'one_call' / '5d' for one_call(48h or 8d) or 5d (every 3h) forecast
         """
         # TODO: perhaps only use the next 12h / Time till next dawn?
+        self.run = run
 
         logging.info(f"weather_data.py: \nUpdating Weather Data. \n\n{self.city_name}, Run {self.run}\nFrom File: {FROM_FILE}")
-        self.run = run
         if self.type == '5d':  # !! Only in 3h-Steps available
             json_file = 'data/weather_data_5d.json'
             call_api = api_talk.get_5d_forecast
             self.plot_title = f'CS Probability within the next {5 * 24} hours'
         # elif self.t == 'one_call':
         else:
-            json_file = f'files/weather_data_{self.city_name}.json'
+            json_file = f'data/weather_data_{self.city_name}.json'
             call_api = api_talk.get_onecall_forecast
             self.plot_title = f'CS Probability within the next {2 * 24} hours'
 
@@ -193,7 +191,8 @@ class WeatherData:
         med_chance = probs.query("probability >= @CS_TRESHOLD_LOW")
         logging.info(f'weather_data.py: dates with medium chances: \n{pprint.pformat(med_chance)}')
 
-        if good_chance.shape[0] > 0:
+        # TODO: needs a checkup
+        if good_chance.shape[0] > 2:
             logging.info(f"weather_data.py: CS Probability over {CS_TRESHOLD_HIGH}% on {good_chance.shape[0]} hours")
             self.text_cs_chance = text_chances[2]
             self.col_cs_chance = col_chances[2]
@@ -227,7 +226,7 @@ class WeatherData:
         )
 
         fig.suptitle(
-            f"\n{self.city_name}: {self.text_cs_chance}",
+            f"{self.df.dt[0].strftime('%d.%m.%Y - %H:%M')}\n{self.city_name}: {self.text_cs_chance}",
             fontsize='xx-large',
             color=self.col_cs_chance
         )
@@ -272,13 +271,13 @@ class WeatherData:
             facecolor=col_highlight,
             alpha=0.7
         )
-        ax1.fill_between(
-            self.df.dt,
-            100,
-            where=(self.df.probability >= CS_TRESHOLD_LOW) & (self.df.is_night == False),
-            facecolor=col_med_highlight,
-            alpha=0.3
-        )
+        # ax1.fill_between(
+        #     self.df.dt,
+        #     100,
+        #     where=(self.df.probability >= CS_TRESHOLD_LOW) & (self.df.is_night == False),
+        #     facecolor=col_med_highlight,
+        #     alpha=0.3
+        # )
 
         # Probability ---------- #
         ax1.plot(
@@ -371,13 +370,13 @@ class WeatherData:
             alpha=0.3
         )
 
-        ax_bar.fill_between(
-            self.df.dt,
-            100,
-            where=(self.df.probability >= CS_TRESHOLD_HIGH) & (self.df.is_night == False),
-            facecolor=col_med_highlight,
-            alpha=0.3
-        )
+        # ax_bar.fill_between(
+        #     self.df.dt,
+        #     100,
+        #     where=(self.df.probability >= CS_TRESHOLD_HIGH) & (self.df.is_night == False),
+        #     facecolor=col_med_highlight,
+        #     alpha=0.3
+        # )
         # ---------- Right Axis: Temperature, Dew Point ---------- #
         ax_temp = axs[1].twinx()
 
@@ -413,11 +412,8 @@ class WeatherData:
         )
 
         # ---------- X-Axis Labels ---------- #
-        # TODO: round minutes
-        minor_labels = [self.sunrise[0].hour, self.sunset[0].hour]
-        # print(f"sunrise/set: {self.df.sunrise[0], self.df.sunset[0]}")
-        # print(f'minor labels: {minor_labels}')
-        minor_labels.sort()
+        # srise = self.sunrise[0].round('H')
+        # sset = self.sunset[0].round('H')
 
         for ax in axs:
             ax.grid(True)
@@ -450,7 +446,7 @@ class WeatherData:
             )
         filepath = f'figures/{self.city_name}-{self.run}.png'
         plt.savefig(filepath)  #
-        logging.info(f"weather_data.py: Plot saved as {filepath}")
+        logging.warning(f"weather_data.py: {self.city_name.upper()}: Plot saved.")
 
 
     def check_for_changes(self, last_df: pd.DataFrame):
@@ -473,23 +469,24 @@ class WeatherData:
 
             logging.info(f"weather_data.py: self.df/last_df of {self.city_name, self.run}")  # \n{self.df}\n{last_df}")
             logging.info(f'weather_data.py: sizes: {self.df.shape, last_df.shape}\n'
-                         f'newest:\n{self.df}\n'
-                         f'last_head:\n{last_df}')
+                         f'newest {self.city_name}:\n{self.df}\n'
+                         f'last_head {self.city_name}:\n{last_df}')
 
-            diff = abs(self.df.probability - last_df.probability)
+            merged = pd.merge(self.df, last_df.probability, how='inner', left_index=True, right_index=True, suffixes=('_new', '_old')).dropna()
             diff_df = pd.DataFrame()
-            diff_df['diff'] = diff
-            diff_df['is_night'] = self.df.is_night
-            logging.info(f'diff_df:\n{pprint.pformat(diff_df)}')
+            diff_df['diff'] = abs(merged.probability_new - merged.probability_old)
+            diff_df['is_night'] = merged.is_night
 
-            with open(f'data/diff{self.city_name}.csv', 'w') as writer:
-                diff_df.to_csv(writer)
+            logging.info(f'diff_df:\n{pprint.pformat(diff_df)} for {self.city_name}')
+
+            with open(f'data/diff{self.city_name}.csv', 'w') as f:
+                diff_df.to_csv(f)
 
             logging.info(f'weather_data.py: dfs of {self.city_name, self.run} after alignment\n'
                          f'newest:\n{self.df}\n'
                          f'last_head:\n{last_df}')
 
-            logging.info(f'weather_data.py: sizes: {self.df.size, last_df.size}')
+            logging.info(f'weather_data.py: sizes of dfs: {self.df.size, last_df.size}')
 
             # for testing purpose
             # diff_df['diff'] = np.random.randint(0, 50, self.df.shape[0])
@@ -512,10 +509,6 @@ class WeatherData:
             logging.info(f'weather_data.py: significant changes: {True if significant_changes.shape[0] > 0 else False}')
             logging.info(f'weather_data.py: \n{significant_changes}')
             logging.info(significant_changes.shape)
-        # else:
-        #     logging.info("______ new day - no compare _____")
-
-
 
 
 # def check_weather():

@@ -67,7 +67,7 @@ def get_nowcast():
 	text = call_api(OWM_Endpoint_current, parameters).text
 	weather_data = xmltodict.parse(text)
 
-	# with open('files/weather_data_nowcast.xml', 'r') as f:
+	# with open('data/weather_data_nowcast.xml', 'r') as f:
 	# 	weather_data = xmltodict.parse(f.read())
 	# pprint.pprint(json.dumps(weather_data), indent=4)
 
@@ -79,21 +79,21 @@ def get_nowcast():
 	})
 	print(update_times[-1])
 
-	with open('files/update_times.json', 'w') as f:
+	with open('data/update_times.json', 'w') as f:
 		f.write(json.dumps(update_times))
 
 
 def get_5d_forecast():
 	"""
 	calls owm/forecast
-	saves weather_data for next 5d3h in files/weather_data_5d3h.json
+	saves weather_data for next 5d3h in data/weather_data_5d3h.json
 	"""
 	print('getting 5d forecast')
 
 	res = requests.get(OWM_Endpoint_forecast, params=parameters)
 	res.raise_for_status()
 
-	with open('files/weather_data_5d3h.json', 'w') as file:
+	with open('data/weather_data_5d3h.json', 'w') as file:
 		file.write(json.dumps(res.json()))
 
 	return res.json()
