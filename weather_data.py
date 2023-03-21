@@ -9,8 +9,6 @@ import pandas as pd
 
 import api_talk
 
-# from apscheduler.schedulers.blocking import BlockingScheduler
-# sched = BlockingScheduler()
 
 FROM_FILE = False
 TIME_ZONE = 'Europe/Berlin'
@@ -64,9 +62,9 @@ class WeatherData:
         input: t = 'one_call' / '5d' for one_call(48h or 8d) or 5d (every 3h) forecast
         """
         # TODO: perhaps only use the next 12h / Time till next dawn?
+        self.run = run
 
         logging.info(f"weather_data.py: \nUpdating Weather Data. \n\n{self.city_name}, Run {self.run}\nFrom File: {FROM_FILE}")
-        self.run = run
         if self.type == '5d':  # !! Only in 3h-Steps available
             json_file = 'data/weather_data_5d.json'
             call_api = api_talk.get_5d_forecast
@@ -471,23 +469,24 @@ class WeatherData:
 
             logging.info(f"weather_data.py: self.df/last_df of {self.city_name, self.run}")  # \n{self.df}\n{last_df}")
             logging.info(f'weather_data.py: sizes: {self.df.shape, last_df.shape}\n'
-                         f'newest:\n{self.df}\n'
-                         f'last_head:\n{last_df}')
+                         f'newest {self.city_name}:\n{self.df}\n'
+                         f'last_head {self.city_name}:\n{last_df}')
 
-            diff = abs(self.df.probability - last_df.probability)
+            merged = pd.merge(self.df, last_df.probability, how='inner', left_index=True, right_index=True, suffixes=('_new', '_old')).dropna()
             diff_df = pd.DataFrame()
-            diff_df['diff'] = diff
-            diff_df['is_night'] = self.df.is_night
-            logging.info(f'diff_df:\n{pprint.pformat(diff_df)}')
+            diff_df['diff'] = abs(merged.probability_new - merged.probability_old)
+            diff_df['is_night'] = merged.is_night
 
-            with open(f'data/diff{self.city_name}.csv', 'w') as writer:
-                diff_df.to_csv(writer)
+            logging.info(f'diff_df:\n{pprint.pformat(diff_df)} for {self.city_name}')
+
+            with open(f'data/diff{self.city_name}.csv', 'w') as f:
+                diff_df.to_csv(f)
 
             logging.info(f'weather_data.py: dfs of {self.city_name, self.run} after alignment\n'
                          f'newest:\n{self.df}\n'
                          f'last_head:\n{last_df}')
 
-            logging.info(f'weather_data.py: sizes: {self.df.size, last_df.size}')
+            logging.info(f'weather_data.py: sizes of dfs: {self.df.size, last_df.size}')
 
             # for testing purpose
             # diff_df['diff'] = np.random.randint(0, 50, self.df.shape[0])
@@ -510,10 +509,6 @@ class WeatherData:
             logging.info(f'weather_data.py: significant changes: {True if significant_changes.shape[0] > 0 else False}')
             logging.info(f'weather_data.py: \n{significant_changes}')
             logging.info(significant_changes.shape)
-        # else:
-        #     logging.info("______ new day - no compare _____")
-
-
 
 
 # def check_weather():

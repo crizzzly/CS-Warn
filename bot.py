@@ -49,8 +49,8 @@ NAME, LOCATION, CITY = range(3)
 
 # time to run code automatically [h, m]
 run_times = [
-    {'h': 12, 'm': 0},  # 0
-    {'h': 15, 'm': 0},  # 1
+    {'h': 1, 'm': 24},  # 0
+    {'h': 1, 'm': 26},  # 1
     {'h': 18, 'm': 0},  # 2
     {'h': 20, 'm': 0},  # 3
 ]
@@ -80,15 +80,6 @@ for city in city_list():
 
 
 async def send_all_plots(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    alert = False
-    # think I don't need this cause last run-number is saved in instance
-    # time_now = datetime.datetime.now(tz=pytz.timezone('Europe/Berlin'))
-    # run = None
-    # for i in range(len(run_times)):
-    #     pos = len(run_times) - i
-    #     if time_now.hour >= run_times[pos]['h'] and time_now.minute >= run_times[pos]['m']:
-    #         run = pos
-
     for cty in weather_per_city:
         alert = True
         try:
@@ -152,7 +143,7 @@ async def update_weather_data(context: ContextTypes.DEFAULT_TYPE):
     # TODO: Check changes func in weather_data - > simplest way? compared data?? used dataframe options accordingly?
     #  CS Marker in plotting - does it set the marker on the right position?
 
-    logging.info("bot.py: Updating Weather Data")
+    logging.warning("bot.py: Updating Weather Data")
     # update weather data for every city_name and send to group if anyone has good chances
     for cty in weather_per_city:
         logging.info(f"bot.py: Updating weather data for {cty.city_name}\nRun: {run}")
@@ -166,12 +157,12 @@ async def update_weather_data(context: ContextTypes.DEFAULT_TYPE):
             logging.info(f"bot.py: Should alert is set to: {cty.should_alert}\n"
                          f"sending plot for {cty.city_name} to {channel_id}\nRun: {run}")
             # logging.info(f"bot.py: sending plot for {cty.city_name} to {channel_id}\nRun: {run}")
-            # await context.bot.sendPhoto(channel_id, open(f'figures/{cty.city_name}-{run}', 'rb'))
+            await context.bot.sendPhoto(channel_id, open(f'figures/{cty.city_name}-{run}', 'rb'))
 
         if cty.should_alert or run == 0:
             try:
                 # await context.bot.send_message(channel_id, f"run: {run}, cty: {cty.city_name}")
-                await context.bot.sendPhoto(channel_id, open(f'figures/{cty.city_name}-{run}.png', 'rb'))
+                # await context.bot.sendPhoto(channel_id, open(f'figures/{cty.city_name}-{run}.png', 'rb'))
                 for user in users:
                     if cty.city_name == user.city:
                         logging.info(f"bot.py: sending plot for {cty.city_name} to {user.name}")
