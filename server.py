@@ -14,6 +14,12 @@ from sqlalchemy.exc import OperationalError
 # https://docs.sqlalchemy.org/en/20/index.html
 # https://github.com/python-telegram-bot/python-telegram-bot/wiki
 
+# TODO: Instead of manually handling a database to store data, consider implementing
+#  a subclass of BasePersistence. This allows you to simply pass an instance of that
+#  subclass to the Updater/Dispatcher and let PTB handle the loading,
+#  updating & storing of the data!
+#  https://github.com/python-telegram-bot/v13.x-wiki/wiki/Making-your-bot-persistent
+
 app = Flask(__name__)
 
 ##CREATE DATABASE
@@ -87,16 +93,17 @@ def city_add(name, lat, lon):
     with app.app_context():
         try:
             db.session.add(cty)
+            db.session.commit()
         except IntegrityError as e:
             logging.error(msg="server.py: Exception while adding city_name:", exc_info=e)
-        else:
-            db.session.commit()
+
 
 
 def city_get_coord(name):
     with app.app_context():
         try:
-            city = db.get_or_404(City, name)
+            # city = db.get_or_404(City, name)
+            city = City.query.filter_by(name=name).one()
         except Error as e:
             logging.warning(f"server.py: {name} not found in cities: \n{e}")
             return False
@@ -107,7 +114,8 @@ def city_get_coord(name):
 def city_get_name(lat, lon):
     with app.app_context():
         try:
-            city = db.get_or_404(City, (lat, lon))
+            # city = db.get_or_404(City, (lat, lon))
+            city = City.query.filter_by(lat=lat, lon=lon).all()
         except Error as e:
             logging.exception(f"server.py: {lat}, {lon} not found in cities: \n", e)
             return False
@@ -148,10 +156,10 @@ def user_add(name, user_id, city):
     with app.app_context():
         try:
             db.session.add(user)
+            db.session.commit()
         except Error as e:
             logging.exception("Exception in server.py - user_add while trying to add new user", e)
-        else:
-            db.session.commit()
+
 
 
 @app.route("/user/<int:id>")
@@ -161,17 +169,18 @@ def user_detail(user_id):
         # user = db.session.execute(stmt)
         try:
             # user = db.get_or_404(User, user_id)
-            user = db.first_or_404(db.select(User).filter_by(user_id=user_id))
+            user = User.query.filter_by(user_id=user_id).all()
         except Error as e:
             logging.exception(f"server.py: Exception in 'user_detail'\n"
                               f"Exception while trying to get user by id {user_id}", e)
             return False
         else:
+            logging.info(f"server.py: Got user details from {user[0].name}")
             return user
 
 
 @app.route("/user/<int:id>/delete", methods=["GET", "POST"])
-def user_delete(user_id):
+def user_delete(user_id: int):
     with app.app_context():
         try:
             user = db.first_or_404(db.select(User).filter_by(user_id=user_id))
@@ -183,7 +192,7 @@ def user_delete(user_id):
 
 
 ####################### WEATHER ######################
-def new_weather_data(weather_df: pd.DataFrame, city, run=0):
+def new_weather_data(weather_df: pd.DataFrame, city: str, run=0):
     logging.info(f"server.py: saving new weather data for {city} ,run{run} to db ")
     with app.app_context():
         weather_df.to_sql(

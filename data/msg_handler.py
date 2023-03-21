@@ -76,11 +76,11 @@ async def new_user(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
 
 async def skip_location(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Skips the location and asks for city."""
+    """Skips the location and asks for city_name."""
     user = update.message.from_user
     logging.info("User %s did not send a location.", user.first_name)
     await update.message.reply_text(
-        "No problem. Just tell me a city and I will find out the coordinates"
+        "No problem. Just tell me a city_name and I will find out the coordinates"
     )
 
     return LOCATION

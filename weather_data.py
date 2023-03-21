@@ -193,7 +193,8 @@ class WeatherData:
         med_chance = probs.query("probability >= @CS_TRESHOLD_LOW")
         logging.info(f'weather_data.py: dates with medium chances: \n{pprint.pformat(med_chance)}')
 
-        if good_chance.shape[0] > 0:
+        # TODO: needs a checkup
+        if good_chance.shape[0] > 2:
             logging.info(f"weather_data.py: CS Probability over {CS_TRESHOLD_HIGH}% on {good_chance.shape[0]} hours")
             self.text_cs_chance = text_chances[2]
             self.col_cs_chance = col_chances[2]
@@ -227,7 +228,7 @@ class WeatherData:
         )
 
         fig.suptitle(
-            f"\n{self.city_name}: {self.text_cs_chance}",
+            f"{self.df.dt[0].strftime('%d.%m.%Y - %H:%M')}\n{self.city_name}: {self.text_cs_chance}",
             fontsize='xx-large',
             color=self.col_cs_chance
         )
@@ -272,13 +273,13 @@ class WeatherData:
             facecolor=col_highlight,
             alpha=0.7
         )
-        ax1.fill_between(
-            self.df.dt,
-            100,
-            where=(self.df.probability >= CS_TRESHOLD_LOW) & (self.df.is_night == False),
-            facecolor=col_med_highlight,
-            alpha=0.3
-        )
+        # ax1.fill_between(
+        #     self.df.dt,
+        #     100,
+        #     where=(self.df.probability >= CS_TRESHOLD_LOW) & (self.df.is_night == False),
+        #     facecolor=col_med_highlight,
+        #     alpha=0.3
+        # )
 
         # Probability ---------- #
         ax1.plot(
@@ -371,13 +372,13 @@ class WeatherData:
             alpha=0.3
         )
 
-        ax_bar.fill_between(
-            self.df.dt,
-            100,
-            where=(self.df.probability >= CS_TRESHOLD_HIGH) & (self.df.is_night == False),
-            facecolor=col_med_highlight,
-            alpha=0.3
-        )
+        # ax_bar.fill_between(
+        #     self.df.dt,
+        #     100,
+        #     where=(self.df.probability >= CS_TRESHOLD_HIGH) & (self.df.is_night == False),
+        #     facecolor=col_med_highlight,
+        #     alpha=0.3
+        # )
         # ---------- Right Axis: Temperature, Dew Point ---------- #
         ax_temp = axs[1].twinx()
 
@@ -413,11 +414,8 @@ class WeatherData:
         )
 
         # ---------- X-Axis Labels ---------- #
-        # TODO: round minutes
-        minor_labels = [self.sunrise[0].hour, self.sunset[0].hour]
-        # print(f"sunrise/set: {self.df.sunrise[0], self.df.sunset[0]}")
-        # print(f'minor labels: {minor_labels}')
-        minor_labels.sort()
+        # srise = self.sunrise[0].round('H')
+        # sset = self.sunset[0].round('H')
 
         for ax in axs:
             ax.grid(True)
@@ -450,7 +448,7 @@ class WeatherData:
             )
         filepath = f'figures/{self.city_name}-{self.run}.png'
         plt.savefig(filepath)  #
-        logging.info(f"weather_data.py: Plot saved as {filepath}")
+        logging.warning(f"weather_data.py: {self.city_name.upper()}: Plot saved.")
 
 
     def check_for_changes(self, last_df: pd.DataFrame):
