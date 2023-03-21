@@ -213,7 +213,7 @@ def get_weather_data(city: str, run=0) -> Exception | Iterator[DataFrame] | Data
 
     with app.app_context():
         try:
-            # city_name = pd.read_sql_table(name=city_name, con=db.engine)
+            # weather = pd.read_sql_table(name=city+str(run), con=db.engine)
             weather = pd.read_sql(sql=city+str(run), con=db.engine) #  , parse_dates=['dt'])
         except OperationalError as e:
             logging.exception("server.py: error in get_weather_data", e)
