@@ -58,7 +58,7 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
         f"<pre>context.user_data = {html.escape(str(context.user_data))}</pre>\n\n"
         f"<pre>{html.escape(tb_string)}</pre>"
     )
-    # logging.exception("Exception Handler: ", message)
+    logging.exception("Exception Handler: ", message)
 
     # Finally, send the message
     await context.bot.send_message(
