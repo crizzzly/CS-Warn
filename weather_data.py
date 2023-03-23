@@ -10,7 +10,7 @@ import pandas as pd
 import api_talk
 
 
-FROM_FILE = True
+FROM_FILE = False
 TIME_ZONE = 'Europe/Berlin'
 LABEL_FONTSIZE = 10
 TICKLABEL_SIZE_Y = 'medium'
@@ -181,7 +181,7 @@ class WeatherData:
         ]]
 
         logging.info(f'weather_data.py: DataFrame for {self.city_name} created. Data from {self.time_call}')
-        print(f"{self.city_name}: NEW DATA ---- NEW DATA ---- NEW DATA ")
+        print(f"{self.city_name}-{self.run}: NEW DATA ---- NEW DATA ---- NEW DATA ")
         # pprint.pprint(self.df[["dt", "probability", "is_night"]])
 
         probs = self.df.query("is_night == True")

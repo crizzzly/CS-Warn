@@ -48,11 +48,11 @@ NAME, LOCATION, CITY = range(3)
 
 # time to run code automatically [h, m]
 run_times = [
-    {'h': 20, 'm': 35},  # 0
-    {'h': 20, 'm': 45},  # 1
-    {'h': 20, 'm': 55},  # 2
-    {'h': 21, 'm': 5},  # 3
-]
+    {'h': 23, 'm': 10},  # 0
+    {'h': 22, 'm': 20},  # 1
+    {'h': 22, 'm': 30},  # 2
+    {'h': 22, 'm': 40},  # 3
+    ]
 
 TESTRUN = False
 if TESTRUN:
@@ -325,18 +325,22 @@ async def skip_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def find_coordinates(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    Finds Coordinates by Name given by user
-    creates new user, city_name&weatherdata (if needed) in db
-    """
+        Finds Coordinates by Name given by user
+        creates new user, city_name&weatherdata (if needed) in db
+        """
     user = update.message.from_user
     city_name = update.message.text
     geolocator = Nominatim(user_agent="MyApp")
     loc = geolocator.geocode(update.message.text)
     u_name = context.user_data['set_name']
 
+    # TODO: handle possible multi-answers when getting coordinates of city
     if loc is None:
         await update.message.reply_text(f"Can't find name {city_name}\nPlease try again")
         return None
+    elif isinstance(loc, list):
+        city_list = [l.address.split(', ')[2] for l in loc]
+        await update.message.reply_text(f"I have more than one option for {update.message.text}. Please specify.\n{city_list}")
 
     logging.info(
         f"bot.py: Location of {u_name}: {loc.latitude, loc.longitude}",
