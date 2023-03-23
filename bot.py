@@ -48,10 +48,10 @@ NAME, LOCATION, CITY = range(3)
 
 # time to run code automatically [h, m]
 run_times = [
-    {'h': 23, 'm': 10},  # 0
-    {'h': 22, 'm': 20},  # 1
-    {'h': 22, 'm': 30},  # 2
-    {'h': 22, 'm': 40},  # 3
+    {'h': 12, 'm': 0},  # 0
+    {'h': 15, 'm': 0},  # 1
+    {'h': 18, 'm': 0},  # 2
+    {'h': 20, 'm': 0},  # 3
     ]
 
 TESTRUN = False
@@ -62,7 +62,7 @@ if TESTRUN:
 else:
     telegram_bot_token = os.environ.get('CS_ALERT_TELEGR_ACCESS_TOKEN')
     NOTIFY_CHANNEL = True
-NOTIFY_CHANNEL = False
+
 
 # TODO: Exception handling is a mess!
 
