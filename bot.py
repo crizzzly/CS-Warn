@@ -48,13 +48,13 @@ NAME, LOCATION, CITY = range(3)
 
 # time to run code automatically [h, m]
 run_times = [
-    {'h': 12, 'm': 0},  # 0
-    {'h': 15, 'm': 0},  # 1
-    {'h': 18, 'm': 0},  # 2
-    {'h': 20, 'm': 0},  # 3
+    {'h': 23, 'm': 0},  # 0
+    {'h': 22, 'm': 10},  # 1
+    {'h': 22, 'm': 20},  # 2
+    {'h': 22, 'm': 30},  # 3
 ]
 
-TESTRUN = True
+TESTRUN = False
 if TESTRUN:
     import config
     telegram_bot_token = config.teleg_test_tok
