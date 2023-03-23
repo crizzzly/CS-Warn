@@ -49,8 +49,8 @@ NAME, LOCATION, CITY = range(3)
 
 # time to run code automatically [h, m]
 run_times = [
-    {'h': 1, 'm': 24},  # 0
-    {'h': 1, 'm': 26},  # 1
+    {'h': 20, 'm':15},  # 0
+    {'h': 20, 'm': 20},  # 1
     {'h': 18, 'm': 0},  # 2
     {'h': 20, 'm': 0},  # 3
 ]
@@ -157,7 +157,7 @@ async def update_weather_data(context: ContextTypes.DEFAULT_TYPE):
             logging.info(f"bot.py: Should alert is set to: {cty.should_alert}\n"
                          f"sending plot for {cty.city_name} to {channel_id}\nRun: {run}")
             # logging.info(f"bot.py: sending plot for {cty.city_name} to {channel_id}\nRun: {run}")
-            await context.bot.sendPhoto(channel_id, open(f'figures/{cty.city_name}-{run}', 'rb'))
+            await context.bot.sendPhoto(channel_id, open(f'figures/{cty.city_name}-{run}', 'rb'), connect_timeout=60, read_timeout=30)
 
         if cty.should_alert or run == 0:
             try:
@@ -167,7 +167,7 @@ async def update_weather_data(context: ContextTypes.DEFAULT_TYPE):
                     if cty.city_name == user.city:
                         logging.info(f"bot.py: sending plot for {cty.city_name} to {user.name}")
                         try:
-                            await context.bot.sendPhoto(user.user_id, open(f'figures/{user.city}-{run}.png', 'rb'))
+                            await context.bot.sendPhoto(user.user_id, open(f'figures/{user.city}-{run}.png', 'rb'), connect_timeout=60, read_timeout=30)
                         except (Exception, FileNotFoundError) as e:
                             logging.exception(f'bot.py: send_plot  in "update_weather_data": \n{e}')
                             print(e)
