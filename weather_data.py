@@ -10,7 +10,7 @@ import pandas as pd
 import api_talk
 
 
-FROM_FILE = True
+FROM_FILE = False
 TIME_ZONE = 'Europe/Berlin'
 LABEL_FONTSIZE = 10
 TICKLABEL_SIZE_Y = 'medium'
@@ -181,7 +181,7 @@ class WeatherData:
         ]]
 
         logging.info(f'weather_data.py: DataFrame for {self.city_name} created. Data from {self.time_call}')
-        print(f"{self.city_name}: NEW DATA ---- NEW DATA ---- NEW DATA ")
+        print(f"{self.city_name}-{self.run}: NEW DATA ---- NEW DATA ---- NEW DATA ")
         # pprint.pprint(self.df[["dt", "probability", "is_night"]])
 
         probs = self.df.query("is_night == True")
@@ -451,7 +451,7 @@ class WeatherData:
         logging.warning(f"weather_data.py: {self.city_name.upper()}: Plot saved.")
 
 
-    def check_for_changes(self, last_df=None):
+    def check_for_changes(self):
         with open(f"data/{self.city_name}-{str(self.run)}.csv") as file:
             last_df = pd.read_csv(file)
         print(pprint.pformat(last_df.head()))
