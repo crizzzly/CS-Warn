@@ -7,6 +7,7 @@ from typing import Any, Iterator
 import pandas as pd
 from flask import Flask
 from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy import text, select
 from pandas import DataFrame
 from sqlalchemy.exc import OperationalError
 
@@ -23,12 +24,11 @@ from sqlalchemy.exc import OperationalError
 app = Flask(__name__)
 
 ##CREATE DATABASE
-app.config['SQLALCHEMY_DATABASE_URI'] = "sqlite:///users.db"
+db_uri = "sqlite:///users.db"
+app.config['SQLALCHEMY_DATABASE_URI'] = db_uri
 # Optional: But it will silence the deprecation warning in the console.
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
-
-
 
 
 class User(db.Model):
@@ -194,14 +194,17 @@ def user_delete(user_id: int):
 ####################### WEATHER ######################
 def new_weather_data(weather_df: pd.DataFrame, city: str, run=0):
     logging.info(f"server.py: saving new weather data for {city} ,run{run} to db ")
-    with app.app_context():
-        weather_df.to_sql(
-            name=city + str(run),
-            con=db.engine,
-            if_exists='append',
-        )
-        # db.session.add(weather)
-        db.session.commit()
+    with open(f"data/{city+str(run)}.csv", "w") as file:
+        weather_df.to_csv(file)
+
+    # with app.app_context():
+    #     weather_df.to_sql(
+    #         name=city + str(run),
+    #         con=db_uri,
+    #         if_exists='append',
+    #     )
+    #     # db.session.add(weather)
+    #     db.session.commit()
 
 
 def add_weather_data(weather_df: pd.DataFrame, city):
@@ -210,15 +213,23 @@ def add_weather_data(weather_df: pd.DataFrame, city):
 
 
 def get_weather_data(city: str, run=0) -> Exception | Iterator[DataFrame] | DataFrame:
-
-    with app.app_context():
-        try:
-            # city_name = pd.read_sql_table(name=city_name, con=db.engine)
-            weather = pd.read_sql(sql=city+str(run), con=db) #  , parse_dates=['dt'])
-        except OperationalError as e:
-            logging.exception("server.py: error in get_weather_data", e)
-            return Exception(e)
+    table_name = city+str(run)
+    weather = pd.DataFrame()
+    with open(f"data/{city}-{run}.csv") as file:
+        weather = pd.read_csv(file)
     return weather
+    # query = f"SELECT * FROM {table_name}"  # %(table_name)s""" , {'table_name': table_name}
+    # weather = None
+    # with app.app_context():
+    #     try:
+    #         weather = db.session.execute(db.select(text(table_name)).scalars())
+    #         db.session.commit()
+    #         # weather = pd.read_sql_table(table_name=query, con=db_uri) #  , parse_dates=['dt'])
+    #     except (OperationalError, TypeError, Error) as e:
+    #         logging.exception("server.py: error in get_weather_data", e)
+    #         return Exception(e)
+    #     finally:
+    #         return weather
 
 ####################### END WEATHER ######################
 

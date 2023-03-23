@@ -38,9 +38,8 @@ logging.basicConfig(
     level=logging.INFO
 )
 
-telegram_bot_token = os.environ.get('CS_ALERT_TELEGR_ACCESS_TOKEN')
 
-channel_id = '@CS_Alert_Alb'
+CHANNEL_ID = '@CS_Alert_Alb'
 MY_ID = os.environ.get('CS_ALERT_TELEGR_ID')
 
 MAX_CHARS = 4096
@@ -49,13 +48,23 @@ NAME, LOCATION, CITY = range(3)
 
 # time to run code automatically [h, m]
 run_times = [
-    {'h': 20, 'm':15},  # 0
-    {'h': 20, 'm': 20},  # 1
-    {'h': 18, 'm': 0},  # 2
-    {'h': 20, 'm': 0},  # 3
+    {'h': 17, 'm': 50},  # 0
+    {'h': 18, 'm': 12},  # 1
+    {'h': 19, 'm': 49},  # 2
+    {'h': 20, 'm': 3},  # 3
 ]
 
-# TODO: Exception handling is too complicated
+TESTRUN = True
+if TESTRUN:
+    import config
+    telegram_bot_token = config.teleg_test_tok
+    NOTIFY_CHANNEL = False
+else:
+    telegram_bot_token = os.environ.get('CS_ALERT_TELEGR_ACCESS_TOKEN')
+    NOTIFY_CHANNEL = True
+
+
+# TODO: Exception handling is a mess!
 
 
 def check_time():
@@ -81,15 +90,12 @@ for city in city_list():
 
 async def send_all_plots(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for cty in weather_per_city:
-        alert = True
         try:
             await update.message.reply_photo(open(f'figures/{cty.city_name}-{cty.run}.png', 'rb'))
         except (Exception, FileNotFoundError) as e:
             txt = f"bot.py: Error while trying to send photo in 'bot.py send_all_plots':"
             logging.exception(txt, e)
             await update.message.reply_text(f"{txt}:\n, {e}")
-    # if not alert:
-    #     await update.message.reply_text("None of our friends seems to have luck")
 
 
 async def send_plot(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -119,12 +125,8 @@ async def send_plot(update: Update, context: ContextTypes.DEFAULT_TYPE):
         for usr in user:
             try:
                 await update.message.reply_photo(f'figures/{usr.city}-{run}.png')
-            except Exception as e:
-                txt = f"bot.py: Exception in 'bot.py send_plot' while sending plot:"
-                logging.exception(txt, e)
-                await update.message.reply_text(f"{txt}\n{e}")
-            except ConnectionResetError as e:
-                txt = "bot.py: ConnectionResetError in send_plot"
+            except (TimeoutError, ConnectionResetError) as e:
+                txt = f"bot.py: Exception in 'bot.py send_plot' while sending plot. Please try again:"
                 logging.exception(txt, e)
                 await update.message.reply_text(f"{txt}\n{e}")
 
@@ -148,39 +150,48 @@ async def update_weather_data(context: ContextTypes.DEFAULT_TYPE):
     for cty in weather_per_city:
         logging.info(f"bot.py: Updating weather data for {cty.city_name}\nRun: {run}")
         cty.update_weather_data(run=run)
-        new_weather_data(cty.df, cty.city_name, run=run)
+        # new_weather_data(cty.df, cty.city_name, run=run)
         if run == 0:
             pass
         if run > 0:
-            last_weather = get_weather_data(cty.city_name, run=(run-1))
-            cty.check_for_changes(last_weather)
+            # last_weather = get_weather_data(cty.city_name, run=(run-1))
+            cty.check_for_changes()
             logging.info(f"bot.py: Should alert is set to: {cty.should_alert}\n"
-                         f"sending plot for {cty.city_name} to {channel_id}\nRun: {run}")
-            # logging.info(f"bot.py: sending plot for {cty.city_name} to {channel_id}\nRun: {run}")
-            await context.bot.sendPhoto(channel_id, open(f'figures/{cty.city_name}-{run}', 'rb'), connect_timeout=60, read_timeout=30)
+                         f"sending plot for {cty.city_name} to {CHANNEL_ID}\nRun: {run}")
+            # logging.info(f"bot.py: sending plot for {cty.city_name} to {CHANNEL_ID}\nRun: {run}")
+            # send plots to group
+            if NOTIFY_CHANNEL:
+                try:
+                    await context.bot.sendPhoto(
+                        CHANNEL_ID, open(f'figures/{cty.city_name}-{run}', 'rb'),
+                        connect_timeout=60,
+                        read_timeout=30,
+                    )
+                except (ConnectionResetError, TimeoutError) as e:
+                    txt = "Error while trying to send photo. Please try again\n"
+                    logging.exception(txt, e)
+                    context.bot.send_message(CHANNEL_ID, txt+e)
 
+
+        # send plots to users if it is first run of day or if should_alert was set to True
         if cty.should_alert or run == 0:
-            try:
-                # await context.bot.send_message(channel_id, f"run: {run}, cty: {cty.city_name}")
-                # await context.bot.sendPhoto(channel_id, open(f'figures/{cty.city_name}-{run}.png', 'rb'))
-                for user in users:
-                    if cty.city_name == user.city:
-                        logging.info(f"bot.py: sending plot for {cty.city_name} to {user.name}")
-                        try:
-                            await context.bot.sendPhoto(user.user_id, open(f'figures/{user.city}-{run}.png', 'rb'), connect_timeout=60, read_timeout=30)
-                        except (Exception, FileNotFoundError) as e:
-                            logging.exception(f'bot.py: send_plot  in "update_weather_data": \n{e}')
-                            print(e)
-            except RuntimeWarning as w:
-                logging.warning(
-                    f"bot.py: Runtime warning while trying to send photo in 'bot.py update_weather_data': \n{w}")
-                await context.bot.send_message("Something might have gone wrong")
+            for user in users:
+                if cty.city_name == user.city:
+                    logging.info(f"bot.py: sending plot for {cty.city_name} to {user.name}")
+                    try:
+                        await context.bot.sendPhoto(
+                            user.user_id, open(f'figures/{user.city}-{run}.png', 'rb'),
+                            connect_timeout=60,
+                            read_timeout=30,
+                        )
+                    except (TimeoutError, ConnectionResetError, FileNotFoundError) as e:
+                        logging.exception(f'bot.py: send_plot  in "update_weather_data": \n{e}')
+                        print(e)
 
         elif run == 0 and not cty.should_alert:
             logging.info(f"Bot.py: No good chances for {cty.city_name}")
-            # await context.bot.send_message(chat_id=channel_id, text=f"No good chances in {cty.city_name}.")
         else:
-            logging.info(f"bot.py: Run number {run}. Skipping user message")
+            logging.info(f"bot.py: Run number {run}. Skipping user message for {cty.city_name}")
 
 
 async def list_user_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):

@@ -10,7 +10,7 @@ import pandas as pd
 import api_talk
 
 
-FROM_FILE = False
+FROM_FILE = True
 TIME_ZONE = 'Europe/Berlin'
 LABEL_FONTSIZE = 10
 TICKLABEL_SIZE_Y = 'medium'
@@ -446,15 +446,15 @@ class WeatherData:
             )
         filepath = f'figures/{self.city_name}-{self.run}.png'
         plt.savefig(filepath)  #
+        with open(f"data/{self.city_name}-{str(run)}.csv", "w") as file:
+            self.df.to_csv(file)
         logging.warning(f"weather_data.py: {self.city_name.upper()}: Plot saved.")
 
 
-    def check_for_changes(self, last_df: pd.DataFrame):
-        # self.df = self.df[['dt', 'probability', 'is_cs']].set_index('dt')
-        # logging.info("saving newest self.df to file")
-        # self.df.to_json("data/weather_df.json")
-        # last_df = pd.read_json("data/weather_df.json")
-
+    def check_for_changes(self, last_df=None):
+        with open(f"data/{self.city_name}-{str(self.run)}.csv") as file:
+            last_df = pd.read_csv(file)
+        print(pprint.pformat(last_df.head()))
 
         # TODO: What if when first warning says we will get CS and next says we won't?
         # only check for changes if last_df is from today
