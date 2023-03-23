@@ -451,11 +451,11 @@ class WeatherData:
         logging.warning(f"weather_data.py: {self.city_name.upper()}: Plot saved.")
 
 
-    def check_for_changes(self, last_df=None):
+    def check_for_changes(self):
         with open(f"data/{self.city_name}-{str(self.run)}.csv") as file:
             last_df = pd.read_csv(file)
-        print(pprint.pformat(last_df.head()))
-
+        logging.warning("Last_df: \n"+pprint.pformat(last_df.head()))
+        
         # TODO: What if when first warning says we will get CS and next says we won't?
         # only check for changes if last_df is from today
         logging.info(f"weather_data.py: \nChecking for changes\n{self.city_name}, Run No: {self.run}")

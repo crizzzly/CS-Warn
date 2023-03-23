@@ -48,13 +48,13 @@ NAME, LOCATION, CITY = range(3)
 
 # time to run code automatically [h, m]
 run_times = [
-    {'h': 17, 'm': 50},  # 0
-    {'h': 18, 'm': 12},  # 1
-    {'h': 19, 'm': 49},  # 2
-    {'h': 20, 'm': 3},  # 3
+    {'h': 20, 'm': 35},  # 0
+    {'h': 20, 'm': 45},  # 1
+    {'h': 20, 'm': 55},  # 2
+    {'h': 21, 'm': 5},  # 3
 ]
 
-TESTRUN = True
+TESTRUN = False
 if TESTRUN:
     import config
     telegram_bot_token = config.teleg_test_tok
@@ -62,7 +62,7 @@ if TESTRUN:
 else:
     telegram_bot_token = os.environ.get('CS_ALERT_TELEGR_ACCESS_TOKEN')
     NOTIFY_CHANNEL = True
-
+NOTIFY_CHANNEL = False
 
 # TODO: Exception handling is a mess!
 
