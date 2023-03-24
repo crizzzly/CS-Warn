@@ -1,4 +1,6 @@
 #!/usr/bin/env python3.11
+import logging
+
 import requests
 import json
 import os
@@ -110,10 +112,24 @@ def get_onecall_forecast(lat, lon):
 		"appid": API_KEY,
 		"units": "metric",
 	}
+	try:
+		response = requests.get(onecall_endpoint, params=parameters_onecall)
+		response.raise_for_status()
+	except requests.exceptions.ConnectionError as e:
+		txt = "api_talk.py: ConnectionError while trying to get onecall forecast"
+		logging.exception(txt, e)
+		logging.info("api_talk.py: Trying again ... ")
+		try:
+			response = requests.get(onecall_endpoint, params=parameters_onecall)
+			response.raise_for_status()
+		except requests.exceptions.ConnectionError as e:
+			logging.exception("api_talk.py: ConnectionError once more. exiting.", e)
+			exit(1)
+		else:
+			return response.json()
 
-	response = requests.get(onecall_endpoint, params=parameters_onecall)
-	response.raise_for_status()
-	return response.json()
+	else:
+		return response.json()
 #
 # while True:
 # 	print('updating...')

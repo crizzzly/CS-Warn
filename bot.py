@@ -48,7 +48,7 @@ NAME, LOCATION, CITY = range(3)
 
 # time to run code automatically [h, m]
 run_times = [
-    {'h': 12, 'm': 0},  # 0
+    {'h': 14, 'm': 30},  # 0
     {'h': 15, 'm': 0},  # 1
     {'h': 18, 'm': 0},  # 2
     {'h': 20, 'm': 0},  # 3
@@ -131,7 +131,6 @@ async def send_plot(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_text(f"{txt}\n{e}")
 
 
-# to regularly update weather data of all saved weather_per_city
 async def update_weather_data(context: ContextTypes.DEFAULT_TYPE):
     """
     Updates WeatherData via weather api. Send according data to every user if this is first run per day.
