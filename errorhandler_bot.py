@@ -8,6 +8,8 @@ import json
 import logging
 import os
 import traceback
+import datetime
+import pytz
 
 from telegram import __version__ as TG_VER
 
@@ -58,7 +60,7 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
         f"<pre>context.user_data = {html.escape(str(context.user_data))}</pre>\n\n"
         f"<pre>{html.escape(tb_string)}</pre>"
     )
-    logging.exception("Exception Handler: ", message)
+    logging.exception(f"Exception Handler: {datetime.datetime.now(tz=pytz.timezone('Europe/Berlin')).strftime(%Y-%m-%d %H:%M)}", message)
 
     # Finally, send the message
     await context.bot.send_message(
