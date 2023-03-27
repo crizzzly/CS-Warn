@@ -48,8 +48,8 @@ NAME, LOCATION, CITY = range(3)
 
 # time to run code automatically [h, m]
 run_times = [
-    {'h': 14, 'm': 30},  # 0
-    {'h': 15, 'm': 0},  # 1
+    {'h': 14, 'm': 45},  # 0
+    {'h': 16, 'm': 0},  # 1
     {'h': 18, 'm': 0},  # 2
     {'h': 20, 'm': 0},  # 3
     ]
