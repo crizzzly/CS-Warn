@@ -9,7 +9,7 @@ import pandas as pd
 
 import api_talk
 
-FROM_FILE = False
+FROM_FILE = True
 TIME_ZONE = 'Europe/Berlin'
 LABEL_FONTSIZE = 10
 TICKLABEL_SIZE_Y = 'medium'
@@ -431,22 +431,22 @@ class WeatherData:
 
         for ax in axs:
             ax.grid(True)
-            # ax.xaxis.set_major_locator(mdates.DayLocator())
+            ax.xaxis.set_major_locator(mdates.DayLocator())
+            ax.xaxis.set_major_formatter(mdates.DateFormatter('%A'))
 
-            ax.xaxis.set_major_locator(mdates.HourLocator(byhour=[0, 6, 12, 18]))
-            ax.xaxis.set_major_formatter(mdates.AutoDateFormatter(mdates.HourLocator(byhour=[0, 6, 12, 18])))  # .DateFormatter('%A'))
-            ax.xaxis.set_minor_formatter(mdates.AutoDateFormatter(mdates.AutoDateLocator()))  # DateFormatter('%H:%M'))
+            ax.xaxis.set_minor_locator(mdates.HourLocator())  # byhour=[6, 12, 18]
+            ax.xaxis.set_minor_formatter(mdates.DateFormatter('%H:%M'))
 
             for label in ax.get_xticklabels(minor=False):
                 label.set_horizontalalignment('left')
-
             ax.tick_params(
                 axis='x',
                 which='major',
                 labelsize='small',
                 pad=8,
                 # labelbottom=True,
-                direction='out'
+                grid_color='white',
+                grid_alpha=0.5,
             )
             ax.tick_params(
                 axis='x',
@@ -458,11 +458,15 @@ class WeatherData:
                 # labelbottom=True,
                 pad=2,
             )
+            ax.grid(visible=True, which='major', axis='x',  color='#DDDDDD', linewidth=0.8)
+            ax.grid(visible=True, which='minor', axis='x', color='#DDDDDD', linestyle=':', linewidth=0.8)
+            ax.minorticks_on()
+
         filepath = f'figures/{self.city_name}-{self.run}.png'
         plt.savefig(filepath)  #
         with open(f"data/{self.city_name}-{str(self.run)}.csv", "w") as file:
-            self.df.to_csv(file)
-        logging.warning(f"weather_data.py: {self.city_name.upper()}: Plot saved.")
+            self.df.to_csv(path_or_buf=file)
+        logging.warning(f"weather_data.py: {filepath}: Plot saved.")
 
     def check_for_changes(self):
         with open(f"data/{self.city_name}-{str(self.run - 1)}.csv") as file:
@@ -485,6 +489,8 @@ class WeatherData:
         diff_df['diff'] = abs(merged.probability_new - merged.probability_old)
         diff_df['is_night'] = merged.is_night_new
         diff_df['has_changed'] = [False if merged.is_cs_new[i] == merged.is_cs_old[i] else True for i in merged.index]
+        # for testing purpose
+        # diff_df['diff'] = np.random.randint(0, 50, self.df.shape[0])
 
         logging.info(f'diff_df:\n{pprint.pformat(diff_df)} for {self.city_name}')
 
@@ -494,21 +500,9 @@ class WeatherData:
         with open(f'data/diff{self.city_name}-{self.run}.csv', 'w') as f:
             diff_df.to_csv(f)
 
-        # for testing purpose
-        # diff_df['diff'] = np.random.randint(0, 50, self.df.shape[0])
 
 
 
-# def check_weather():
-#     weather = WeatherData()
-#     weather.update_weather_data()
-#     # Problem with plotting data outside of main func:
-#     #  https://stackoverflow.com/questions/34764535/why-cant-matplotlib-plot-in-a-different-thread
-#     #weather.plot_data()
-#     # weather.check_for_changes()
-#     logging.info("__________________END___________________")
-#
-#
 if __name__ == "__main__":
     #     sched.start()
     weather = WeatherData("Stuttgart", 48.7784485, 9.1800132)
