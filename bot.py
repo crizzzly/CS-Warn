@@ -30,6 +30,7 @@ from server import (
     # get_weather_data,
 )
 from weather_data import WeatherData
+import config
 
 
 logging.basicConfig(
@@ -39,7 +40,7 @@ logging.basicConfig(
 )
 
 
-CHANNEL_ID = '@CS_Alert_Alb'
+CHANNEL_ID = config.channel_id
 MY_ID = os.environ.get('CS_ALERT_TELEGR_ID')
 
 MAX_CHARS = 4096
@@ -56,7 +57,6 @@ run_times = [
 
 TESTRUN = True
 if TESTRUN:
-    import config
     telegram_bot_token = config.teleg_test_tok
     NOTIFY_CHANNEL = False
 else:

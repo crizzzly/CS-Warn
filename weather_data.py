@@ -489,10 +489,7 @@ class WeatherData:
         logging.info(f'diff_df:\n{pprint.pformat(diff_df)} for {self.city_name}')
 
         changed = diff_df.query('diff >= 20 or has_changed == True')
-        if changed.shape[0] > 0:
-            self.should_alert = True
-        else:
-            self.should_alert = False
+        self.should_alert = True if changed.shape[0] > 0 else False
 
         with open(f'data/diff{self.city_name}-{self.run}.csv', 'w') as f:
             diff_df.to_csv(f)
