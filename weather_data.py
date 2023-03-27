@@ -9,7 +9,6 @@ import pandas as pd
 
 import api_talk
 
-
 FROM_FILE = False
 TIME_ZONE = 'Europe/Berlin'
 LABEL_FONTSIZE = 10
@@ -48,6 +47,8 @@ class WeatherData:
         self.col_cs_chance = col_chances[0]
         self.text_cs_chance = text_chances[0]
         self.should_alert = False
+        self.med_chance_comp = None
+        self.good_chance_comp = None
         self.last_df = None
         self.sunset = None
         self.sunrise = None
@@ -64,7 +65,8 @@ class WeatherData:
         # TODO: perhaps only use the next 12h / Time till next dawn?
         self.run = run
 
-        logging.info(f"weather_data.py: \nUpdating Weather Data. \n\n{self.city_name}, Run {self.run}\nFrom File: {FROM_FILE}")
+        logging.debug(
+            f"weather_data.py: Updating Weather Data. \n{self.city_name}, Run {self.run}\nFrom File: {FROM_FILE}")
         if self.type == '5d':  # !! Only in 3h-Steps available
             json_file = 'data/weather_data_5d.json'
             call_api = api_talk.get_5d_forecast
@@ -150,7 +152,8 @@ class WeatherData:
 
         # to easily check if time is at night
         self.df['is_night'] = [
-            True if self.df.dt[i].time() < self.df.sunrise[0].time() or self.df.sunset[0].time() < self.df.dt[i].time() else False
+            True if self.df.dt[i].time() < self.df.sunrise[0].time() or self.df.sunset[0].time() < self.df.dt[
+                i].time() else False
             for i in self.df.index
         ]
 
@@ -187,9 +190,9 @@ class WeatherData:
         probs = self.df.query("is_night == True")
         good_chance = probs.query("probability >= @CS_TRESHOLD_HIGH")
         logging.info("THIS SHOULD ONLY CONTAIN ROWS AT NIGHT WITH GOOD CHANCES")
-        logging.info(f'weather_data.py: dates with good chances: \n{pprint.pformat(good_chance)}')
+        # logging.info(f'weather_data.py: {good_chance.shape[0]} hours with good chances.')
         med_chance = probs.query("probability >= @CS_TRESHOLD_LOW")
-        logging.info(f'weather_data.py: dates with medium chances: \n{pprint.pformat(med_chance)}')
+        # logging.info(f'weather_data.py: {med_chance.shape[0]} hours with medium chances')
 
         # TODO: needs a checkup
         if good_chance.shape[0] > 2:
@@ -197,10 +200,11 @@ class WeatherData:
             self.text_cs_chance = text_chances[2]
             self.col_cs_chance = col_chances[2]
             self.should_alert = True
+            logging.info(f'weather_data.py: good times should be {good_chance.dt}')
             logging.info("Should Warn was set to True")
         elif med_chance.shape[0] > 0:
             logging.info(f"weather_data.py: CS Probability over {CS_TRESHOLD_LOW}% on {med_chance.shape[0]} hours")
-            logging.info(f'weather_data.py: good times should be {good_chance.dt}')
+            logging.info(f'weather_data.py: medium times should be {med_chance.dt}')
             self.text_cs_chance = text_chances[1]
             self.col_cs_chance = col_chances[1]
             self.should_alert = True
@@ -211,7 +215,17 @@ class WeatherData:
             self.col_cs_chance = col_chances[0]
             self.should_alert = False
 
-   #  def plot_data(self):
+        self.plot_data()
+
+        # only alert if anything has chanced
+        if self.run > 0:
+            # compare old an new dataframes
+            self.check_for_changes()
+
+        self.med_chance_comp = med_chance
+        self.good_chance_comp = good_chance
+
+    def plot_data(self):
         """
         Plots the most important values (probability, temp, humidity, wind) via matplotlib
         """
@@ -226,7 +240,7 @@ class WeatherData:
         )
 
         fig.suptitle(
-            f"{self.df.dt[0].strftime('%d.%m.%Y - %H:%M')}\n{self.city_name}: {self.text_cs_chance}",
+            f"{self.df.dt[0].strftime('%d.%m.%Y - %H:%M')}\n{self.city_name}-{self.run}: {self.text_cs_chance}",
             fontsize='xx-large',
             color=self.col_cs_chance
         )
@@ -417,11 +431,11 @@ class WeatherData:
 
         for ax in axs:
             ax.grid(True)
-            ax.xaxis.set_major_locator(mdates.DayLocator())
+            # ax.xaxis.set_major_locator(mdates.DayLocator())
 
-            ax.xaxis.set_minor_locator(mdates.HourLocator(byhour=[0, 6, 12, 18]))
-            ax.xaxis.set_major_formatter(mdates.DateFormatter('%A'))
-            ax.xaxis.set_minor_formatter(mdates.DateFormatter('%H:%M'))
+            ax.xaxis.set_major_locator(mdates.HourLocator(byhour=[0, 6, 12, 18]))
+            ax.xaxis.set_major_formatter(mdates.AutoDateFormatter(mdates.HourLocator(byhour=[0, 6, 12, 18])))  # .DateFormatter('%A'))
+            ax.xaxis.set_minor_formatter(mdates.AutoDateFormatter(mdates.AutoDateLocator()))  # DateFormatter('%H:%M'))
 
             for label in ax.get_xticklabels(minor=False):
                 label.set_horizontalalignment('left')
@@ -446,69 +460,46 @@ class WeatherData:
             )
         filepath = f'figures/{self.city_name}-{self.run}.png'
         plt.savefig(filepath)  #
-        with open(f"data/{self.city_name}-{str(run)}.csv", "w") as file:
+        with open(f"data/{self.city_name}-{str(self.run)}.csv", "w") as file:
             self.df.to_csv(file)
         logging.warning(f"weather_data.py: {self.city_name.upper()}: Plot saved.")
 
-
     def check_for_changes(self):
-        with open(f"data/{self.city_name}-{str(self.run)}.csv") as file:
+        with open(f"data/{self.city_name}-{str(self.run - 1)}.csv") as file:
             last_df = pd.read_csv(file)
-        logging.warning("Last_df: \n"+pprint.pformat(last_df.head()))
-        
-        # TODO: What if when first warning says we will get CS and next says we won't?
-        # only check for changes if last_df is from today
+
         logging.info(f"weather_data.py: \nChecking for changes\n{self.city_name}, Run No: {self.run}")
         logging.info(f"weather_data.py: self.df vs last_df: ")
         # logging.info(self.df.dt[0].dt.strftime("%Y-%m-%d %H:%M"), last_df.dt[0].dt.strftime("%Y-%m-%d %H:%M"))
-        if True:  # self.df.index[0].date() == last_df.index[0].date():
-            last_df.dt = pd.to_datetime(last_df.dt, utc=True)
-            last_df = last_df.set_index('dt')
-            last_df.index = last_df.index.tz_convert(TIME_ZONE)
-            self.df = self.df.set_index('dt')
+        last_df.dt = pd.to_datetime(last_df.dt, utc=True)
+        last_df = last_df.set_index('dt')
+        last_df.index = last_df.index.tz_convert(TIME_ZONE)
+        self.df = self.df.set_index('dt')
 
-            logging.info(f"weather_data.py: self.df/last_df of {self.city_name, self.run}")  # \n{self.df}\n{last_df}")
-            logging.info(f'weather_data.py: sizes: {self.df.shape, last_df.shape}\n'
-                         f'newest {self.city_name}:\n{self.df}\n'
-                         f'last_head {self.city_name}:\n{last_df}')
+        logging.info(f"weather_data.py: self.df/last_df of {self.city_name, self.run}")  # \n{self.df}\n{last_df}")
+        logging.info(f'weather_data.py: sizes: {self.df.shape, last_df.shape}\n')
 
-            merged = pd.merge(self.df, last_df.probability, how='inner', left_index=True, right_index=True, suffixes=('_new', '_old')).dropna()
-            diff_df = pd.DataFrame()
-            diff_df['diff'] = abs(merged.probability_new - merged.probability_old)
-            diff_df['is_night'] = merged.is_night
+        merged = pd.merge(self.df, last_df, how='inner', left_index=True, right_index=True,
+                          suffixes=('_new', '_old')).dropna()
+        diff_df = pd.DataFrame()
+        diff_df['diff'] = abs(merged.probability_new - merged.probability_old)
+        diff_df['is_night'] = merged.is_night_new
+        diff_df['has_changed'] = [False if merged.is_cs_new[i] == merged.is_cs_old[i] else True for i in merged.index]
 
-            logging.info(f'diff_df:\n{pprint.pformat(diff_df)} for {self.city_name}')
+        logging.info(f'diff_df:\n{pprint.pformat(diff_df)} for {self.city_name}')
 
-            with open(f'data/diff{self.city_name}.csv', 'w') as f:
-                diff_df.to_csv(f)
+        changed = diff_df.query('diff >= 20 or has_changed == True')
+        if changed.shape[0] > 0:
+            self.should_alert = True
+        else:
+            self.should_alert = False
 
-            logging.info(f'weather_data.py: dfs of {self.city_name, self.run} after alignment\n'
-                         f'newest:\n{self.df}\n'
-                         f'last_head:\n{last_df}')
+        with open(f'data/diff{self.city_name}-{self.run}.csv', 'w') as f:
+            diff_df.to_csv(f)
 
-            logging.info(f'weather_data.py: sizes of dfs: {self.df.size, last_df.size}')
+        # for testing purpose
+        # diff_df['diff'] = np.random.randint(0, 50, self.df.shape[0])
 
-            # for testing purpose
-            # diff_df['diff'] = np.random.randint(0, 50, self.df.shape[0])
-
-            # TODO: Test this shit!
-            change_val = 25
-            significant_changes = diff_df.query("diff >= @change_val and is_night == True")
-
-            # if not self.should_alert:
-            #     if significant_changes.shape[0] > 0:
-            #         self.should_alert = True
-            # else: #  if self.should_alert
-            #     if significant_changes.shape[0] == 0:
-            #         self.should_alert = False
-            # if significant_changes.shape[0] == 0 and self.run == 1:
-            #     self.should_alert = not self.should_alert
-
-
-            self.should_alert = True if significant_changes.shape[0] > 0 else False
-            logging.info(f'weather_data.py: significant changes: {True if significant_changes.shape[0] > 0 else False}')
-            logging.info(f'weather_data.py: \n{significant_changes}')
-            logging.info(significant_changes.shape)
 
 
 # def check_weather():

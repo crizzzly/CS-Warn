@@ -26,8 +26,8 @@ from server import (
     city_add,
     city_list,
     city_get_coord,
-    new_weather_data,
-    get_weather_data,
+    # new_weather_data,
+    # get_weather_data,
 )
 from weather_data import WeatherData
 
@@ -48,13 +48,13 @@ NAME, LOCATION, CITY = range(3)
 
 # time to run code automatically [h, m]
 run_times = [
-    {'h': 14, 'm': 45},  # 0
-    {'h': 16, 'm': 0},  # 1
-    {'h': 18, 'm': 0},  # 2
-    {'h': 20, 'm': 0},  # 3
+    {'h': 20, 'm': 55},  # 0
+    {'h': 21, 'm': 15},  # 1
+    {'h': 21, 'm': 30},  # 2
+    {'h': 21, 'm': 40},  # 3
     ]
 
-TESTRUN = False
+TESTRUN = True
 if TESTRUN:
     import config
     telegram_bot_token = config.teleg_test_tok
@@ -147,36 +147,37 @@ async def update_weather_data(context: ContextTypes.DEFAULT_TYPE):
     logging.warning("bot.py: Updating Weather Data")
     # update weather data for every city_name and send to group if anyone has good chances
     for cty in weather_per_city:
-        logging.info(f"bot.py: Updating weather data for {cty.city_name}\nRun: {run}")
+        logging.debug(f"bot.py: Updating weather data for {cty.city_name}\nRun: {run}")
         cty.update_weather_data(run=run)
         # new_weather_data(cty.df, cty.city_name, run=run)
-        if run == 0:
-            pass
         if run > 0:
-            # last_weather = get_weather_data(cty.city_name, run=(run-1))
-            cty.check_for_changes()
-            logging.info(f"bot.py: Should alert is set to: {cty.should_alert}\n"
+            # cty.check_for_changes()
+            logging.debug(f"bot.py: Should alert is set to: {cty.should_alert}\n"
                          f"sending plot for {cty.city_name} to {CHANNEL_ID}\nRun: {run}")
             # logging.info(f"bot.py: sending plot for {cty.city_name} to {CHANNEL_ID}\nRun: {run}")
             # send plots to group
+
+        # send plots to users if it is first run of day or if should_alert was set to True
+        if cty.should_alert or run == 0:
+            logging.debug(f"bot.py: Should alert is set to: {cty.should_alert}\n"
+                          f"sending plot for {cty.city_name}, Run: {run}")
+
             if NOTIFY_CHANNEL:
                 try:
                     await context.bot.sendPhoto(
-                        CHANNEL_ID, open(f'figures/{cty.city_name}-{run}', 'rb'),
+                        CHANNEL_ID, open(f'figures/{cty.city_name}-{run}.png', 'rb'),
                         connect_timeout=60,
                         read_timeout=30,
                     )
-                except (ConnectionResetError, TimeoutError) as e:
+                except (ConnectionResetError, TimeoutError, FileNotFoundError) as e:
                     txt = "Error while trying to send photo. Please try again\n"
                     logging.exception(txt, e)
                     context.bot.send_message(CHANNEL_ID, txt+e)
 
-
-        # send plots to users if it is first run of day or if should_alert was set to True
-        if cty.should_alert or run == 0:
+            # TODO: This can be solved better:
             for user in users:
                 if cty.city_name == user.city:
-                    logging.info(f"bot.py: sending plot for {cty.city_name} to {user.name}")
+                    logging.debug(f"bot.py: sending plot for {cty.city_name} to {user.name}")
                     try:
                         await context.bot.sendPhoto(
                             user.user_id, open(f'figures/{user.city}-{run}.png', 'rb'),
@@ -190,7 +191,7 @@ async def update_weather_data(context: ContextTypes.DEFAULT_TYPE):
         elif run == 0 and not cty.should_alert:
             logging.info(f"Bot.py: No good chances for {cty.city_name}")
         else:
-            logging.info(f"bot.py: Run number {run}. Skipping user message for {cty.city_name}")
+            logging.debug(f"bot.py: Run number {run}. Skipping user message for {cty.city_name}")
 
 
 async def list_user_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -276,16 +277,16 @@ async def location(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # check if city_name is in db, if not create new entry
     try:
         if not city_get_coord(city_name):
-            logging.info(f"bot.py: Creating new WeatherData instance for {city_name}")
+            logging.debug(f"bot.py: Creating new WeatherData instance for {city_name}")
             city_add(city_name, loc.latitude, loc.longitude)
             new_data = WeatherData(city=city_name, lat=loc.latitude, lon=loc.longitude)
             new_data.update_weather_data()
             weather_per_city.append(new_data)
-            try:
-                new_weather_data(new_data.df, city_name)
-            except ValueError as e:
-                logging.exception("bot.py: Value error server.py new_weather_data", e)
-                return None
+            # try:
+            #     new_weather_data(new_data.df, city_name)
+            # except ValueError as e:
+            #     logging.exception("bot.py: Value error server.py new_weather_data", e)
+            #     return None
     except LookupError as e:
         logging.error("bot.py: Something went wrong while trying to create new WeatherData", e)
         return None
@@ -297,7 +298,7 @@ async def location(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"Error: \n{e}")
         return None
     else:
-        logging.info(f"bot.py: Added new user: {u_name} from {city_name}")
+        logging.debug(f"bot.py: Added new user: {u_name} from {city_name}")
 
 
     try:
@@ -350,7 +351,7 @@ async def find_coordinates(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # check if city_name is in db, if not create new entry
     try:
-        logging.info(f"bot.py: Creating new WeatherData instance for {city_name}")
+        logging.debug(f"bot.py: Creating new WeatherData instance for {city_name}")
         city_add(city_name, loc.latitude, loc.longitude)
     except (Exception, TypeError) as e:
         logging.exception("Exception in bot.py - update_weather_data while trying to add new city to db:", e)
@@ -359,12 +360,12 @@ async def find_coordinates(update: Update, context: ContextTypes.DEFAULT_TYPE):
         new_data = WeatherData(city=city_name, lat=loc.latitude, lon=loc.longitude)
         new_data.update_weather_data()
         weather_per_city.append(new_data)
-        try:
-            new_weather_data(new_data.df, city_name)
-            # weather_per_city.append(new_data)
-        except (LookupError, ValueError) as e:
-            logging.exception("bot.py: Something went wrong while trying to create new WeatherData", e)
-            return None
+        # try:
+        #     new_weather_data(new_data.df, city_name)
+        #     # weather_per_city.append(new_data)
+        # except (LookupError, ValueError) as e:
+        #     logging.exception("bot.py: Something went wrong while trying to create new WeatherData", e)
+        #     return None
 
     try:
         u_id = user.id
@@ -561,28 +562,29 @@ app.job_queue.run_daily(  # 15.00
     ),
     data=1
 )
-app.job_queue.run_daily(  # 18.00
-    update_weather_data,
-    days=(0, 1, 2, 3, 4, 5, 6),
-    time=datetime.time(
-        hour=run_times[2]['h'],
-        minute=run_times[2]['m'],
-        second=00,
-        tzinfo=pytz.timezone("Europe/Berlin")
-    ),
-    data=2
-)
-app.job_queue.run_daily(  # 20.00
-    update_weather_data,
-    days=(0, 1, 2, 3, 4, 5, 6),
-    time=datetime.time(
-        hour=run_times[3]['h'],
-        minute=run_times[3]['m'],
-        second=00,
-        tzinfo=pytz.timezone("Europe/Berlin")
-    ),
-    data=3
-)
+if not TESTRUN:
+    app.job_queue.run_daily(  # 18.00
+        update_weather_data,
+        days=(0, 1, 2, 3, 4, 5, 6),
+        time=datetime.time(
+            hour=run_times[2]['h'],
+            minute=run_times[2]['m'],
+            second=00,
+            tzinfo=pytz.timezone("Europe/Berlin")
+        ),
+        data=2
+    )
+    app.job_queue.run_daily(  # 20.00
+        update_weather_data,
+        days=(0, 1, 2, 3, 4, 5, 6),
+        time=datetime.time(
+            hour=run_times[3]['h'],
+            minute=run_times[3]['m'],
+            second=00,
+            tzinfo=pytz.timezone("Europe/Berlin")
+        ),
+        data=3
+    )
 
 # async def at_exit_0():
 #     await app.stop()
