@@ -9,7 +9,7 @@ import pandas as pd
 
 import api_talk
 
-FROM_FILE = False
+FROM_FILE = True
 TIME_ZONE = 'Europe/Berlin'
 LABEL_FONTSIZE = 10
 TICKLABEL_SIZE_Y = 'medium'
@@ -18,14 +18,15 @@ TICKLABEL_SIZE_X = 'xx-small'
 CS_TRESHOLD_LOW = 40
 CS_TRESHOLD_HIGH = 70
 
-col_probability = 'mediumvioletred'
+col_probability = "#cf214f"  # 'mediumvioletred'
 col_wind = 'deepskyblue'
 col_highlight = 'silver'
 col_med_highlight = 'gainsboro'
-col_humidity = 'mediumblue'
-col_humidity_text = 'royalblue'
-col_temp = 'mediumspringgreen'
-col_dew_point = 'aquamarine'
+col_humidity = '#0c44fa'  # 'mediumblue'
+col_humidity_text = '#0c44fa'  # 'royalblue'
+col_temp = "#10e3a4"  # 'mediumspringgreen'
+col_dew_point = "#10e3bc"  # 'aquamarine'
+col_face = "#151515"
 
 col_chances = ['red', 'orange', 'green']
 text_chances = ['Get some sleep!', "We'll see ...", 'Seems good!']
@@ -219,7 +220,7 @@ class WeatherData:
 
         # only alert if anything has chanced
         if self.run > 0:
-            # compare old an new dataframes
+            # compare old a new dataframes
             self.check_for_changes()
 
         self.med_chance_comp = med_chance
@@ -237,6 +238,7 @@ class WeatherData:
             2, 1,
             constrained_layout=True,
             sharex='col',
+            facecolor=col_face
         )
 
         fig.suptitle(
@@ -429,13 +431,11 @@ class WeatherData:
         # srise = self.sunrise[0].round('H')
         # sset = self.sunset[0].round('H')
 
+        # ---------- Axis Styling ------------ #
+
         for ax in axs:
             ax.grid(True)
-            ax.xaxis.set_major_locator(mdates.DayLocator())
-            ax.xaxis.set_major_formatter(mdates.DateFormatter('%A'))
-
-            ax.xaxis.set_minor_locator(mdates.HourLocator())  # byhour=[6, 12, 18]
-            ax.xaxis.set_minor_formatter(mdates.DateFormatter('%H:%M'))
+            ax.set_facecolor(col_face)
 
             for label in ax.get_xticklabels(minor=False):
                 label.set_horizontalalignment('left')
@@ -461,6 +461,11 @@ class WeatherData:
             ax.grid(visible=True, which='major', axis='x',  color='#DDDDDD', linewidth=0.8)
             ax.grid(visible=True, which='minor', axis='x', color='#DDDDDD', linestyle=':', linewidth=0.8)
             ax.minorticks_on()
+            ax.xaxis.set_major_locator(mdates.DayLocator())
+            ax.xaxis.set_major_formatter(mdates.DateFormatter('%A'))
+
+            ax.xaxis.set_minor_locator(mdates.HourLocator(byhour=[6, 12, 18]))  # byhour=[6, 12, 18]
+            ax.xaxis.set_minor_formatter(mdates.DateFormatter('%H:00'))
 
         filepath = f'figures/{self.city_name}-{self.run}.png'
         plt.savefig(filepath)  #
@@ -494,7 +499,7 @@ class WeatherData:
 
         logging.info(f'diff_df:\n{pprint.pformat(diff_df)} for {self.city_name}')
 
-        changed = diff_df.query('diff >= 20 or has_changed == True')
+        changed = diff_df.query('diff >= 30 or has_changed == True')
         self.should_alert = True if changed.shape[0] > 0 else False
 
         with open(f'data/diff{self.city_name}-{self.run}.csv', 'w') as f:

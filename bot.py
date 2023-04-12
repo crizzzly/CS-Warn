@@ -49,7 +49,7 @@ NAME, LOCATION, CITY = range(3)
 
 # time to run code automatically [h, m]
 run_times = [
-    {'h': 12, 'm': 10},  # 0
+    {'h': 12, 'm': 00},  # 0
     {'h': 15, 'm': 0},  # 1
     {'h': 18, 'm': 0},  # 2
     {'h': 20, 'm': 0},  # 3
@@ -151,7 +151,6 @@ async def update_weather_data(context: ContextTypes.DEFAULT_TYPE):
         cty.update_weather_data(run=run)
         # new_weather_data(cty.df, cty.city_name, run=run)
         if run > 0:
-            # cty.check_for_changes()
             logging.debug(f"bot.py: Should alert is set to: {cty.should_alert}\n"
                          f"sending plot for {cty.city_name} to {CHANNEL_ID}\nRun: {run}")
             # logging.info(f"bot.py: sending plot for {cty.city_name} to {CHANNEL_ID}\nRun: {run}")
