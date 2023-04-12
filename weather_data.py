@@ -9,7 +9,7 @@ import pandas as pd
 
 import api_talk
 
-FROM_FILE = True
+FROM_FILE = False
 TIME_ZONE = 'Europe/Berlin'
 LABEL_FONTSIZE = 10
 TICKLABEL_SIZE_Y = 'medium'
@@ -195,7 +195,7 @@ class WeatherData:
         # logging.info(f'weather_data.py: {med_chance.shape[0]} hours with medium chances')
 
         # TODO: needs a checkup
-        if good_chance.shape[0] > 2:
+        if good_chance.shape[0] > 0:
             logging.info(f"weather_data.py: CS Probability over {CS_TRESHOLD_HIGH}% on {good_chance.shape[0]} hours")
             self.text_cs_chance = text_chances[2]
             self.col_cs_chance = col_chances[2]
