@@ -1,32 +1,39 @@
 #!/usr/bin/env python3.11
+from datetime import datetime, timezone
 import json
 import logging
+import platform
 import pprint
 
 import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
 import pandas as pd
+import pytz
 
 import api_talk
 
-FROM_FILE = False
+if "Darwin" in platform.system():
+    FROM_FILE = True
+else:
+    FROM_FILE = False
+
 TIME_ZONE = 'Europe/Berlin'
 LABEL_FONTSIZE = 10
 TICKLABEL_SIZE_Y = 'medium'
 TICKLABEL_SIZE_X = 'xx-small'
 
-CS_TRESHOLD_LOW = 40
+CS_TRESHOLD_LOW = 50
 CS_TRESHOLD_HIGH = 70
 
 col_probability = "#cf214f"  # 'mediumvioletred'
 col_wind = 'deepskyblue'
 col_highlight = 'silver'
-col_med_highlight = 'gainsboro'
+col_med_highlight = 'lightsteelblue'
 col_humidity = '#0c44fa'  # 'mediumblue'
 col_humidity_text = '#0c44fa'  # 'royalblue'
 col_temp = "#10e3a4"  # 'mediumspringgreen'
 col_dew_point = "#10e3bc"  # 'aquamarine'
-col_face = "#151515"
+col_face = "#000000"  # "#151515"
 
 col_chances = ['red', 'orange', 'green']
 text_chances = ['Get some sleep!', "We'll see ...", 'Seems good!']
@@ -34,6 +41,8 @@ text_chances = ['Get some sleep!', "We'll see ...", 'Seems good!']
 
 class WeatherData:
     def __init__(self, city, lat, lon, t='one_call'):
+        self.sunset = None
+        self.sunrise = None
         self.city_name = city
         self.lat = lat
         self.lon = lon
@@ -42,6 +51,7 @@ class WeatherData:
         self.df = pd.DataFrame
         self.plot_title = ''
         self.tz_offset = 0
+        self.tz_offset_h = 0
         self.ids = []
         self.icons = []
         self.probabilities = []
@@ -68,6 +78,8 @@ class WeatherData:
 
         logging.debug(
             f"weather_data.py: Updating Weather Data. \n{self.city_name}, Run {self.run}\nFrom File: {FROM_FILE}")
+
+        # Get weather data
         if self.type == '5d':  # !! Only in 3h-Steps available
             json_file = 'data/weather_data_5d.json'
             call_api = api_talk.get_5d_forecast
@@ -76,7 +88,7 @@ class WeatherData:
         else:
             json_file = f'data/weather_data_{self.city_name}.json'
             call_api = api_talk.get_onecall_forecast
-            self.plot_title = f'CS Probability within the next {2 * 24} hours'
+            self.plot_title = f'CS Probability, wind and gust speed within the next {2 * 24} hours'
 
         # Get WeatherData
         if FROM_FILE:
@@ -91,6 +103,7 @@ class WeatherData:
         if self.type == '5d':
             self.df = pd.DataFrame(data['list'])
             self.tz_offset = data['city_name']['timezone']
+            self.tz_offset_h = self.tz_offset / 3600
 
             # sunrise and sunset
             # Convert UTC Timestamps to pd.datetime
@@ -100,6 +113,9 @@ class WeatherData:
             # Convert to local timezone
             self.df.sunrise[0] = sunrise.tz_convert(TIME_ZONE)
             self.df.sunset[0] = sunset.tz_convert(TIME_ZONE)
+
+            print(f"sunrise: {self.df.sunrise[0]}")
+            print(f"sunset: {self.df.sunset[0]}")
 
             # Make Dictionaries in Cells better accessable
             # Main
@@ -125,36 +141,35 @@ class WeatherData:
             self.df.drop(['wind', 'main'], axis=1, inplace=True)
             # print(f'wind_speed: {self.df.wind_speed}')
 
+        # ----------- for onecall api: ----------- #
         else:  # onecall_api
             self.df = pd.DataFrame(data['hourly'])
-            df_daily = pd.DataFrame(data['daily'])
             self.tz_offset = data['timezone_offset']
+            self.tz_offset_h = self.tz_offset / 3600
+
             self.time_call = data['current']['dt']
             self.time_call = pd.to_datetime(self.time_call, unit='s', origin='unix', utc=True)
             self.time_call = self.time_call.tz_convert(TIME_ZONE)
 
-            # Sunrise and set
-            # Convert UTC Timestamps to pd.datetime
-            df_daily.dt = pd.to_datetime(df_daily.dt, utc=True, unit='s', origin='unix')
-            df_daily.sunrise = pd.to_datetime(df_daily.sunrise, utc=True, unit='s', origin='unix')
-            df_daily.sunset = pd.to_datetime(df_daily.sunset, utc=True, unit='s', origin='unix')
+            # Sunrise and -set
+            self.sunrise = datetime.fromtimestamp(data["current"]["sunrise"])  #  pd.Timestamp(ts_input=, unit='s').tz_localize(tz=TIME_ZONE)
+            self.sunset = datetime.fromtimestamp(data["current"]["sunset"])# .tz_localize(tz=TIME_ZONE)
 
             # Convert to local timezone
-            df_daily.dt = df_daily.dt.dt.tz_convert(TIME_ZONE)
-            self.sunrise = df_daily.sunrise.dt.tz_convert(TIME_ZONE)
-            self.sunset = df_daily.sunset.dt.tz_convert(TIME_ZONE)
-            self.df['sunrise'] = df_daily.sunrise
-            self.df['sunset'] = df_daily.sunset
+            self.sunrise = self.sunrise.replace(tzinfo=timezone.utc).astimezone(tz=pytz.timezone(TIME_ZONE))
+            self.sunset = self.sunset.replace(tzinfo=timezone.utc).astimezone(tz=pytz.timezone(TIME_ZONE))
+
+            print(f"sunrise: {self.sunrise}\nsunset: {self.sunset.hour}")
 
         # ----------- for 5d & onecall: ----------- #
-        # convert dt from int to timeseries/timestamps
+        # Convert UTC Timestamps to pd.datetime
         self.df.dt = pd.to_datetime(self.df.dt, unit='s', origin='unix', utc=True)
         self.df.dt = self.df.dt.dt.tz_convert(TIME_ZONE)
 
         # to easily check if time is at night
         self.df['is_night'] = [
-            True if self.df.dt[i].time() < self.df.sunrise[0].time() or self.df.sunset[0].time() < self.df.dt[
-                i].time() else False
+            True if self.df.dt[i].hour < self.sunrise.hour or self.df.dt[i].hour > self.sunset.hour
+            else False
             for i in self.df.index
         ]
 
@@ -271,20 +286,23 @@ class WeatherData:
             fontsize=LABEL_FONTSIZE,
         )
 
-        # ----- Plot ----- #
+        # ----- Plot (1) ----- #
         # CS Area ---------- #
+
+        # is_night
         ax1.fill_between(
             self.df.dt,
             100,
-            where=(self.df.probability >= CS_TRESHOLD_LOW) & (self.df.is_night == True),
-            facecolor=col_highlight,
-            alpha=0.5
+            where=(self.df.is_night == True),  # (self.df.probability >= CS_TRESHOLD_LOW) &
+            facecolor=col_med_highlight,
+            alpha=0.3
         )
+        # High chance
         ax1.fill_between(
             self.df.dt,
             100,
             where=(self.df.probability >= CS_TRESHOLD_HIGH) & (self.df.is_night == True),
-            facecolor=col_highlight,
+            facecolor=col_med_highlight,
             alpha=0.7
         )
         # ax1.fill_between(
@@ -374,9 +392,9 @@ class WeatherData:
         ax_bar.fill_between(
             self.df.dt,
             100,
-            where=(self.df.probability >= CS_TRESHOLD_LOW) & (self.df.is_night == True),
-            facecolor=col_highlight,
-            alpha=0.4
+            where=(self.df.is_night == True),  # (self.df.probability >= CS_TRESHOLD_LOW) &
+            facecolor=col_med_highlight,
+            alpha=0.3
         )
         ax_bar.fill_between(
             self.df.dt,
@@ -428,8 +446,8 @@ class WeatherData:
         )
 
         # ---------- X-Axis Labels ---------- #
-        # srise = self.sunrise[0].round('H')
-        # sset = self.sunset[0].round('H')
+        # sunrise = self.sunrise[0].round('H')
+        # sunset = self.sunset[0].round('H')
 
         # ---------- Axis Styling ------------ #
 
@@ -464,7 +482,7 @@ class WeatherData:
             ax.xaxis.set_major_locator(mdates.DayLocator())
             ax.xaxis.set_major_formatter(mdates.DateFormatter('%A'))
 
-            ax.xaxis.set_minor_locator(mdates.HourLocator(byhour=[6, 12, 18]))  # byhour=[6, 12, 18]
+            ax.xaxis.set_minor_locator(mdates.HourLocator(byhour=[6+self.tz_offset_h, 12+self.tz_offset_h, 18+self.tz_offset_h], tz=pytz.timezone(TIME_ZONE)))  # interval=6
             ax.xaxis.set_minor_formatter(mdates.DateFormatter('%H:00'))
 
         filepath = f'figures/{self.city_name}-{self.run}.png'

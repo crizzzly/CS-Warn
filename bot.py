@@ -3,6 +3,7 @@ import atexit
 import datetime
 import logging
 import os
+import platform
 
 import pytz
 import werkzeug.exceptions
@@ -40,9 +41,18 @@ logging.basicConfig(
 )
 
 
+# Set bot token to test_bot if working on local machine
+TESTRUN = False
+if "Darwin" in platform.system():
+    telegram_bot_token = config.teleg_test_tok
+    NOTIFY_CHANNEL = False
+    TESTRUN = True
+else:
+    telegram_bot_token = os.environ.get('CS_ALERT_TELEGR_ACCESS_TOKEN')
+    NOTIFY_CHANNEL = True
+
 CHANNEL_ID = config.channel_id
 MY_ID = os.environ.get('CS_ALERT_TELEGR_ID')
-
 MAX_CHARS = 4096
 
 NAME, LOCATION, CITY = range(3)
@@ -55,19 +65,15 @@ run_times = [
     {'h': 20, 'm': 0},  # 3
     ]
 
-TESTRUN = False
-if TESTRUN:
-    telegram_bot_token = config.teleg_test_tok
-    NOTIFY_CHANNEL = False
-else:
-    telegram_bot_token = os.environ.get('CS_ALERT_TELEGR_ACCESS_TOKEN')
-    NOTIFY_CHANNEL = True
-
 
 # TODO: Exception handling is a mess!
 
-
 def check_time():
+    """
+    used in 'send_plot', 'send_all_plots' and in case of a restart.
+
+    :return: number of run according to time
+    """
     time_now = datetime.datetime.now(tz=pytz.timezone('Europe/Berlin'))
 
     if time_now.hour >= run_times[3]['h'] and time_now.minute >= run_times[3]['m']:
@@ -89,6 +95,13 @@ for city in city_list():
 
 
 async def send_all_plots(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+        Command '/weather_all'
+        sends all last created weather plots
+        :param update:
+        :param context:
+        :return:
+        """
     for cty in weather_per_city:
         try:
             await update.message.reply_photo(open(f'figures/{cty.city_name}-{cty.run}.png', 'rb'))
@@ -246,7 +259,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def new_user(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Stores the name and asks for a location."""
-    global user_name
     user = update.message.from_user
     text = update.message.text
     user_name = text[0].upper() + text[1:].lower()
@@ -368,7 +380,7 @@ async def find_coordinates(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         u_id = user.id
-        user_add(name=user_name, city=city_name, user_id=u_id)
+        user_add(name=u_name, city=city_name, user_id=u_id)
     except Exception as e:
         logging.exception("bot.py: Error while adding user to db", e)
         await update.message.reply_text(f"Error while saving userdata: \n{e}")

@@ -1,5 +1,9 @@
 # CS-Warn
-Telegram bot that adds new user + location to db, checks weather regularly and alerts users if there's a probability for clear skies within the next 48h
+### Telegram Bot for Astronomers 
 
+Sends Message with current weather data plot at least at noon. 
+Checks several times a day and updates data plot if there are significant changes. 
+
+![Weather Data Plot](weather.png)
 
 ***under construction ...*** 
