@@ -9,7 +9,7 @@ import pandas as pd
 
 import api_talk
 
-FROM_FILE = True
+FROM_FILE = False
 TIME_ZONE = 'Europe/Berlin'
 LABEL_FONTSIZE = 10
 TICKLABEL_SIZE_Y = 'medium'
