@@ -1,9 +1,9 @@
 #!/usr/bin/env python3.11
-from datetime import datetime, timezone
 import json
 import logging
 import platform
 import pprint
+from datetime import datetime, timezone
 
 import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
@@ -49,6 +49,7 @@ class WeatherData:
         self.time_call = None
         self.type = t
         self.df = pd.DataFrame
+        self.data = None
         self.plot_title = ''
         self.tz_offset = 0
         self.tz_offset_h = 0
@@ -76,6 +77,18 @@ class WeatherData:
         # TODO: perhaps only use the next 12h / Time till next dawn?
         self.run = run
 
+        self.fetch_weather_data()
+        self.process_weather_data()
+        self.check_cs_probability()
+
+        self.plot_data()
+
+        # only alert if anything has chanced
+        if self.run > 0:
+            # compare old a new dataframes
+            self.check_for_changes()
+
+    def fetch_weather_data(self):
         logging.debug(
             f"weather_data.py: Updating Weather Data. \n{self.city_name}, Run {self.run}\nFrom File: {FROM_FILE}")
 
@@ -93,22 +106,23 @@ class WeatherData:
         # Get WeatherData
         if FROM_FILE:
             with open(json_file) as file:
-                data = json.load(file)
+                self.data = json.load(file)
         else:
             with open(json_file, 'w') as file:
-                data = call_api(self.lat, self.lon)
-                file.write(json.dumps(data))
+                self.data = call_api(self.lat, self.lon)
+                file.write(json.dumps(self.data))
 
+    def process_weather_data(self):
         # ----------- for 5d forecast: ----------- #
         if self.type == '5d':
-            self.df = pd.DataFrame(data['list'])
-            self.tz_offset = data['city_name']['timezone']
+            self.df = pd.DataFrame(self.data['list'])
+            self.tz_offset = self.data['city_name']['timezone']
             self.tz_offset_h = self.tz_offset / 3600
 
             # sunrise and sunset
             # Convert UTC Timestamps to pd.datetime
-            sunrise = pd.to_datetime(data['city_name']['sunrise'], unit='s', origin='unix', utc=True)
-            sunset = pd.to_datetime(data['city_name']['sunset'], unit='s', origin='unix', utc=True)
+            sunrise = pd.to_datetime(self.data['city_name']['sunrise'], unit='s', origin='unix', utc=True)
+            sunset = pd.to_datetime(self.data['city_name']['sunset'], unit='s', origin='unix', utc=True)
 
             # Convert to local timezone
             self.df.sunrise[0] = sunrise.tz_convert(TIME_ZONE)
@@ -143,17 +157,18 @@ class WeatherData:
 
         # ----------- for onecall api: ----------- #
         else:  # onecall_api
-            self.df = pd.DataFrame(data['hourly'])
-            self.tz_offset = data['timezone_offset']
+            self.df = pd.DataFrame(self.data['hourly'])
+            self.tz_offset = self.data['timezone_offset']
             self.tz_offset_h = self.tz_offset / 3600
 
-            self.time_call = data['current']['dt']
+            self.time_call = self.data['current']['dt']
             self.time_call = pd.to_datetime(self.time_call, unit='s', origin='unix', utc=True)
             self.time_call = self.time_call.tz_convert(TIME_ZONE)
 
             # Sunrise and -set
-            self.sunrise = datetime.fromtimestamp(data["current"]["sunrise"])  #  pd.Timestamp(ts_input=, unit='s').tz_localize(tz=TIME_ZONE)
-            self.sunset = datetime.fromtimestamp(data["current"]["sunset"])# .tz_localize(tz=TIME_ZONE)
+            self.sunrise = datetime.fromtimestamp(
+                self.data["current"]["sunrise"])  # pd.Timestamp(ts_input=, unit='s').tz_localize(tz=TIME_ZONE)
+            self.sunset = datetime.fromtimestamp(self.data["current"]["sunset"])  # .tz_localize(tz=TIME_ZONE)
 
             # Convert to local timezone
             self.sunrise = self.sunrise.replace(tzinfo=timezone.utc).astimezone(tz=pytz.timezone(TIME_ZONE))
@@ -203,10 +218,11 @@ class WeatherData:
         print(f"{self.city_name}-{self.run}: NEW DATA ---- NEW DATA ---- NEW DATA ")
         # pprint.pprint(self.df[["dt", "probability", "is_night"]])
 
+    def check_cs_probability(self):
         probs = self.df.query("is_night == True")
         good_chance = probs.query("probability >= @CS_TRESHOLD_HIGH")
         logging.info("THIS SHOULD ONLY CONTAIN ROWS AT NIGHT WITH GOOD CHANCES")
-        # logging.info(f'weather_data.py: {good_chance.shape[0]} hours with good chances.')
+        # logging.info(f'weather_data.py: {good_chance.shape[0]} hours with good chances.)
         med_chance = probs.query("probability >= @CS_TRESHOLD_LOW")
         # logging.info(f'weather_data.py: {med_chance.shape[0]} hours with medium chances')
 
@@ -231,15 +247,40 @@ class WeatherData:
             self.col_cs_chance = col_chances[0]
             self.should_alert = False
 
-        self.plot_data()
-
-        # only alert if anything has chanced
-        if self.run > 0:
-            # compare old a new dataframes
-            self.check_for_changes()
-
         self.med_chance_comp = med_chance
         self.good_chance_comp = good_chance
+
+    def check_for_changes(self):
+        with open(f"data/{self.city_name}-{str(self.run - 1)}.csv") as file:
+            last_df = pd.read_csv(file)
+
+        logging.info(f"weather_data.py: \nChecking for changes\n{self.city_name}, Run No: {self.run}")
+        logging.info(f"weather_data.py: self.df vs last_df: ")
+        # logging.info(self.df.dt[0].dt.strftime("%Y-%m-%d %H:%M"), last_df.dt[0].dt.strftime("%Y-%m-%d %H:%M"))
+        last_df.dt = pd.to_datetime(last_df.dt, utc=True)
+        last_df = last_df.set_index('dt')
+        last_df.index = last_df.index.tz_convert(TIME_ZONE)
+        self.df = self.df.set_index('dt')
+
+        logging.info(f"weather_data.py: self.df/last_df of {self.city_name, self.run}")  # \n{self.df}\n{last_df}")
+        logging.info(f'weather_data.py: sizes: {self.df.shape, last_df.shape}\n')
+
+        merged = pd.merge(self.df, last_df, how='inner', left_index=True, right_index=True,
+                          suffixes=('_new', '_old')).dropna()
+        diff_df = pd.DataFrame()
+        diff_df['diff'] = abs(merged.probability_new - merged.probability_old)
+        diff_df['is_night'] = merged.is_night_new
+        diff_df['has_changed'] = [False if merged.is_cs_new[i] == merged.is_cs_old[i] else True for i in merged.index]
+        # for testing purpose
+        # diff_df['diff'] = np.random.randint(0, 50, self.df.shape[0])
+
+        logging.info(f'diff_df:\n{pprint.pformat(diff_df)} for {self.city_name}')
+
+        changed = diff_df.query('diff >= 30 or has_changed == True')
+        self.should_alert = True if changed.shape[0] > 0 else False
+
+        with open(f'data/diff{self.city_name}-{self.run}.csv', 'w') as f:
+            diff_df.to_csv(f)
 
     def plot_data(self):
         """
@@ -256,21 +297,52 @@ class WeatherData:
             facecolor=col_face
         )
 
+        top_chart, bottom_chart = axs
+
+        self.plot_chart_title(fig)
+
+        self.plot_high_chance(top_chart)
+        self.plot_night_area(top_chart)
+        self.plot_probability(top_chart)
+        self.plot_wind_and_gust(top_chart.twinx())
+
+        self.plot_humidity(bottom_chart)
+
+        self.plot_night_area(bottom_chart)
+        self.plot_high_chance(bottom_chart)
+        self.plot_temperature_and_dewpoint(bottom_chart.twinx())
+        self.configure_axes(axs)
+        self.save_plot_to_disc(plt)
+
+    def plot_chart_title(self, fig):
         fig.suptitle(
             f"{self.df.dt[0].strftime('%d.%m.%Y - %H:%M')}\n{self.city_name}-{self.run}: {self.text_cs_chance}",
             fontsize='xx-large',
             color=self.col_cs_chance
         )
 
-        # Axis Limits
-        ax1 = axs[0]
+    def plot_high_chance(self, ax1):
+        ax1.fill_between(
+            self.df.dt,
+            100,
+            where=(self.df.probability >= CS_TRESHOLD_HIGH) & (self.df.is_night == True),
+            facecolor=col_med_highlight,
+            alpha=0.7
+        )
+
+    def plot_night_area(self, ax1):
+        ax1.fill_between(
+            self.df.dt,
+            100,
+            where=(self.df.is_night == True),  # (self.df.probability >= CS_TRESHOLD_LOW) &
+            facecolor=col_med_highlight,
+            alpha=0.3
+        )
+
+    def plot_probability(self, ax1):
         ax1.set_xlim(self.df.dt.min(), self.df.dt.max())
         ax1.set_ylim(0, 100)
 
-        #
-        # ------------------ 1st Plot ------------------ #
-        #
-        # ---------- Left Axis: Probability ---------- #
         # ----- Styling ----- #
         ax1.tick_params(
             axis='y',
@@ -286,44 +358,13 @@ class WeatherData:
             fontsize=LABEL_FONTSIZE,
         )
 
-        # ----- Plot (1) ----- #
-        # CS Area ---------- #
-
-        # is_night
-        ax1.fill_between(
-            self.df.dt,
-            100,
-            where=(self.df.is_night == True),  # (self.df.probability >= CS_TRESHOLD_LOW) &
-            facecolor=col_med_highlight,
-            alpha=0.3
-        )
-        # High chance
-        ax1.fill_between(
-            self.df.dt,
-            100,
-            where=(self.df.probability >= CS_TRESHOLD_HIGH) & (self.df.is_night == True),
-            facecolor=col_med_highlight,
-            alpha=0.7
-        )
-        # ax1.fill_between(
-        #     self.df.dt,
-        #     100,
-        #     where=(self.df.probability >= CS_TRESHOLD_LOW) & (self.df.is_night == False),
-        #     facecolor=col_med_highlight,
-        #     alpha=0.3
-        # )
-
-        # Probability ---------- #
         ax1.plot(
             self.df.dt,
             self.df.probability,
             color=col_probability
         )
 
-        # ---------- Right Axis: Wind & Gust Speed ---------- #
-
-        # ----- Styling ----- #
-        ax2 = axs[0].twinx()
+    def plot_wind_and_gust(self, ax2):
         ax2.tick_params(
             axis='y',
             labelcolor=col_wind,
@@ -353,15 +394,12 @@ class WeatherData:
             linewidth=1
         )
 
-        # ------------------ 2nd Plot ------------------ #
-        ax_bar = axs[1]
+    def plot_humidity(self, ax_bar):
         ax_bar.set_ylim(0, 100)
         ax_bar.set_title(
             'Temperature, DewPoint and Humidity',
             color='white',
         )
-
-        # ---------- Left Axis: Humidity ---------- #
 
         # ----- Styling ----- #
         ax_bar.tick_params(
@@ -388,32 +426,8 @@ class WeatherData:
             width=50,
         )
 
-        # CS Area ---------- #d
-        ax_bar.fill_between(
-            self.df.dt,
-            100,
-            where=(self.df.is_night == True),  # (self.df.probability >= CS_TRESHOLD_LOW) &
-            facecolor=col_med_highlight,
-            alpha=0.3
-        )
-        ax_bar.fill_between(
-            self.df.dt,
-            100,
-            where=(self.df.probability >= CS_TRESHOLD_LOW) & (self.df.is_night == True),
-            facecolor=col_highlight,
-            alpha=0.3
-        )
 
-        # ax_bar.fill_between(
-        #     self.df.dt,
-        #     100,
-        #     where=(self.df.probability >= CS_TRESHOLD_HIGH) & (self.df.is_night == False),
-        #     facecolor=col_med_highlight,
-        #     alpha=0.3
-        # )
-        # ---------- Right Axis: Temperature, Dew Point ---------- #
-        ax_temp = axs[1].twinx()
-
+    def plot_temperature_and_dewpoint(self, ax_temp):
         # ----- Styling ----- #
         ax_temp.tick_params(
             axis='y',
@@ -449,14 +463,14 @@ class WeatherData:
         # sunrise = self.sunrise[0].round('H')
         # sunset = self.sunset[0].round('H')
 
-        # ---------- Axis Styling ------------ #
-
+    def configure_axes(self, axs):
         for ax in axs:
             ax.grid(True)
             ax.set_facecolor(col_face)
 
             for label in ax.get_xticklabels(minor=False):
                 label.set_horizontalalignment('left')
+
             ax.tick_params(
                 axis='x',
                 which='major',
@@ -476,54 +490,24 @@ class WeatherData:
                 # labelbottom=True,
                 pad=2,
             )
-            ax.grid(visible=True, which='major', axis='x',  color='#DDDDDD', linewidth=0.8)
+            ax.grid(visible=True, which='major', axis='x', color='#DDDDDD', linewidth=0.8)
             ax.grid(visible=True, which='minor', axis='x', color='#DDDDDD', linestyle=':', linewidth=0.8)
             ax.minorticks_on()
             ax.xaxis.set_major_locator(mdates.DayLocator())
             ax.xaxis.set_major_formatter(mdates.DateFormatter('%A'))
 
-            ax.xaxis.set_minor_locator(mdates.HourLocator(byhour=[6+self.tz_offset_h, 12+self.tz_offset_h, 18+self.tz_offset_h], tz=pytz.timezone(TIME_ZONE)))  # interval=6
+            ax.xaxis.set_minor_locator(
+                mdates.HourLocator(byhour=[6 + self.tz_offset_h, 12 + self.tz_offset_h, 18 + self.tz_offset_h],
+                                   tz=pytz.timezone(TIME_ZONE))
+            )  # interval=6
             ax.xaxis.set_minor_formatter(mdates.DateFormatter('%H:00'))
 
+    def save_plot_to_disc(self, plt):
         filepath = f'figures/{self.city_name}-{self.run}.png'
         plt.savefig(filepath)  #
         with open(f"data/{self.city_name}-{str(self.run)}.csv", "w") as file:
             self.df.to_csv(path_or_buf=file)
         logging.warning(f"weather_data.py: {filepath}: Plot saved.")
-
-    def check_for_changes(self):
-        with open(f"data/{self.city_name}-{str(self.run - 1)}.csv") as file:
-            last_df = pd.read_csv(file)
-
-        logging.info(f"weather_data.py: \nChecking for changes\n{self.city_name}, Run No: {self.run}")
-        logging.info(f"weather_data.py: self.df vs last_df: ")
-        # logging.info(self.df.dt[0].dt.strftime("%Y-%m-%d %H:%M"), last_df.dt[0].dt.strftime("%Y-%m-%d %H:%M"))
-        last_df.dt = pd.to_datetime(last_df.dt, utc=True)
-        last_df = last_df.set_index('dt')
-        last_df.index = last_df.index.tz_convert(TIME_ZONE)
-        self.df = self.df.set_index('dt')
-
-        logging.info(f"weather_data.py: self.df/last_df of {self.city_name, self.run}")  # \n{self.df}\n{last_df}")
-        logging.info(f'weather_data.py: sizes: {self.df.shape, last_df.shape}\n')
-
-        merged = pd.merge(self.df, last_df, how='inner', left_index=True, right_index=True,
-                          suffixes=('_new', '_old')).dropna()
-        diff_df = pd.DataFrame()
-        diff_df['diff'] = abs(merged.probability_new - merged.probability_old)
-        diff_df['is_night'] = merged.is_night_new
-        diff_df['has_changed'] = [False if merged.is_cs_new[i] == merged.is_cs_old[i] else True for i in merged.index]
-        # for testing purpose
-        # diff_df['diff'] = np.random.randint(0, 50, self.df.shape[0])
-
-        logging.info(f'diff_df:\n{pprint.pformat(diff_df)} for {self.city_name}')
-
-        changed = diff_df.query('diff >= 30 or has_changed == True')
-        self.should_alert = True if changed.shape[0] > 0 else False
-
-        with open(f'data/diff{self.city_name}-{self.run}.csv', 'w') as f:
-            diff_df.to_csv(f)
-
-
 
 
 if __name__ == "__main__":
