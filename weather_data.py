@@ -321,8 +321,8 @@ class WeatherData:
             color=self.col_cs_chance
         )
 
-    def plot_high_chance(self, ax1):
-        ax1.fill_between(
+    def plot_high_chance(self, ax_top):
+        ax_top.fill_between(
             self.df.dt,
             100,
             where=(self.df.probability >= CS_TRESHOLD_HIGH) & (self.df.is_night == True),
@@ -330,8 +330,8 @@ class WeatherData:
             alpha=0.7
         )
 
-    def plot_night_area(self, ax1):
-        ax1.fill_between(
+    def plot_night_area(self, ax_top):
+        ax_top.fill_between(
             self.df.dt,
             100,
             where=(self.df.is_night == True),  # (self.df.probability >= CS_TRESHOLD_LOW) &
@@ -339,38 +339,38 @@ class WeatherData:
             alpha=0.3
         )
 
-    def plot_probability(self, ax1):
-        ax1.set_xlim(self.df.dt.min(), self.df.dt.max())
-        ax1.set_ylim(0, 100)
+    def plot_probability(self, ax_top):
+        ax_top.set_xlim(self.df.dt.min(), self.df.dt.max())
+        ax_top.set_ylim(0, 100)
 
         # ----- Styling ----- #
-        ax1.tick_params(
+        ax_top.tick_params(
             axis='y',
             labelcolor=col_probability,
             labelsize=TICKLABEL_SIZE_Y,
         )
-        ax1.set_title(
+        ax_top.set_title(
             "\n" + self.plot_title
         )
-        ax1.set_ylabel(
+        ax_top.set_ylabel(
             'Probability in %',
             color=col_probability,
             fontsize=LABEL_FONTSIZE,
         )
 
-        ax1.plot(
+        ax_top.plot(
             self.df.dt,
             self.df.probability,
             color=col_probability
         )
 
-    def plot_wind_and_gust(self, ax2):
-        ax2.tick_params(
+    def plot_wind_and_gust(self, ax_bottom):
+        ax_bottom.tick_params(
             axis='y',
             labelcolor=col_wind,
             labelsize='medium'
         )
-        ax2.set_ylabel(
+        ax_bottom.set_ylabel(
             'Wind Speed and Gust\nin km/h',
             color=col_wind,
             # labelpad=15
@@ -378,7 +378,7 @@ class WeatherData:
 
         # ----- Plot ----- #
         # Wind Speed ---------- #
-        ax2.plot(
+        ax_bottom.plot(
             self.df.dt,
             self.df.wind_speed,
             color=col_wind,
@@ -386,7 +386,7 @@ class WeatherData:
         )
 
         # Gust Speed ---------- #
-        ax2.plot(
+        ax_bottom.plot(
             self.df.dt,
             self.df.wind_gust,
             color=col_wind,
@@ -421,9 +421,9 @@ class WeatherData:
             self.df.humidity,
             color=col_humidity,
             label='date',
-            alpha=0.5,
+            alpha=0.2,
             align='center',
-            width=50,
+            # width=50,
         )
 
 
