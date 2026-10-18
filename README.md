@@ -6,4 +6,3 @@ Checks several times a day and updates data plot if there are significant change
 
 ![Weather Data Plot](weather.png)
 
-***under construction ...*** 
